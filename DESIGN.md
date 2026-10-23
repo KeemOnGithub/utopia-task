@@ -114,10 +114,9 @@ At approximately `1024px` and above:
   `nav-start` to `nav-end` gradient.
 - **Navigation content:** Show the company name and only destinations
   that exist. Clearly distinguish the current destination.
-- **Utility bar:** Use a restrained bar for useful page context and
-  the mock admin identity. Avoid redundant breadcrumbs.
-- **Identity:** Clearly label demo or mock identities. Do not imply
-  that role indicators provide real authentication.
+- **Utility bar:** Show useful page context and authenticated admin email with
+  real Sign out. Avoid redundant breadcrumbs or mock identity controls.
+- **Identity:** Spec 1 owns real authentication; visual role labels are not security.
 - **Canvas:** Use the `canvas` background with approximately `32px` padding.
 - **Content width:** Limit the form workspace to approximately `1120px`.
 
@@ -284,11 +283,11 @@ they do not expand its scope.
   while submission is pending.
 - Include the saved order number in confirmed success feedback.
 - Do not add a reset or cancel action unless its behavior is justified.
-- Keep detailed post-submission summaries and WhatsApp integration
-  optional, as specified in `AGENTS.md`.
+- Saved order detail and persistent post-create feedback are approved in Spec 4.
+  Private manual drafts are approved in Spec 3; WhatsApp remains out of scope.
 
 Required fields, assignment rules, currency, and order-number formatting
-are business decisions governed by the assignment and `AGENTS.md`,
+are confirmed business decisions governed by `specs/03-create-service-order.md`,
 not inferred from visual examples.
 
 ## Motion and Accessibility

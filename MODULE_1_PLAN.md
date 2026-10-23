@@ -22,15 +22,17 @@ the established visual and accessibility guidelines.
 - Provide clear validation, submission progress, failure, and success feedback.
 - Keep the interface responsive and accessible on desktop and mobile.
 
-The following process refinements are recommended for implementation:
+The following process refinements are approved for implementation in Specs 1-4:
 
 - Use a read-only Service orders list as the homepage instead of a dashboard.
 - Provide a saved-order detail page, also used as the post-submission summary.
 - Require technician assignment when creating an order.
 - Save newly created, assigned orders with status `Assigned`.
 
-These refinements and the business defaults below are planning recommendations,
-not additional requirements stated explicitly by the assessment.
+These refinements and private manual drafts are approved scope expansions,
+not additional requirements stated explicitly by the unchanged assessment.
+The four integrated specs are implementation-ready and authoritative over older
+recommendations in this discussion. No application behavior is implemented.
 
 ## Critical Review of the Original Flow
 
@@ -50,15 +52,15 @@ Graphs are not necessary for Module 1. Technician KPI reporting belongs to a
 separate bonus module, and completion metrics would be misleading without the
 technician completion workflow.
 
-Recommend Service orders as the homepage with a prominent Create service order
+Use Service orders as the homepage with a prominent Create service order
 action. Add charts only when a useful operational question and supporting data
 justify them. Do not display fabricated operational metrics.
 
 ### Submission Form
 
-The assessment lists fields but leaves some business rules unspecified.
-Settle assignment requirements, allowed service types, currency, price rules,
-and order-number formatting before implementation.
+Spec 3 settles required assignment, installation/servicing/repair, MYR
+0.00..999999.99 in integer sen and sequence-backed SO-000001 numbering with
+minimum six digits, expansion and gaps. Notes are optional; status is Assigned.
 
 The form must account for invalid input, database rejection, network failure,
 expired sessions, and uncertain outcomes, not only successful submission.
@@ -68,13 +70,12 @@ expired sessions, and uncertain outcomes, not only successful submission.
 Use "Order created", not "Order complete": creating an order does not mean
 the service job is finished.
 
-Recommend redirecting to the saved order detail page with persistent success
+Redirect to the saved order detail page with persistent success
 feedback containing the actual saved order number. Avoid showing a dialog and
 then immediately redirecting automatically.
 
-If a success dialog is chosen instead, keep it open until the admin selects
-View order or Create another. Implement accessible focus management, Escape
-handling, and focus restoration. Show success only after confirmed persistence.
+No alternative success dialog: Spec 4 owns memory-only receipt feedback and
+independent persisted retrieval, including read failure after confirmed creation.
 
 ### Orders List and Status
 
@@ -90,7 +91,7 @@ such as Pending or Complete:
 Only implement states and transitions needed for Module 1. Do not provide a
 mark-complete action without the technician workflow.
 
-## Recommended User Process
+## Approved User Process
 
 1. Admin opens the portal.
 2. The application checks the existing session through the backend.
@@ -118,10 +119,12 @@ creating another order.
 - React handles presentation, input, navigation, and feedback.
 - The backend handles credentials, sessions, authorization, validation,
   database operations, and safe error responses.
-- Supabase Postgres stores accounts, sessions, technicians, and orders.
+- Supabase Postgres stores accounts, sessions, technicians, orders, private drafts
+  and account-scoped idempotency receipts retained after draft deletion.
 - No separate file-storage workflow is needed for Module 1.
-- Backend framework, build tooling, package manager, and deployment remain
-  undecided. Prefer a same-origin frontend and API where practical.
+- Spec 1 fixes TypeScript/Node 24/Fastify/pg, React/Vite/React Router/Tailwind,
+  npm workspaces, Vitest/RTL/database integration/Playwright and same-origin API.
+  Actual versions and deployment provider remain execution configuration.
 
 ## Authentication and Security Requirements
 
@@ -148,7 +151,12 @@ creating another order.
 - Define an explicit session lifetime and enforce expiry on the backend.
 - Check the session, active account status, and role on every protected request.
 - Restore login state on refresh through a backend session endpoint.
-- Logout revokes the database session and clears the cookie.
+- Successful logout revokes only its presented database session and deletes the
+  cookie. Concurrent login may establish another session; browser response-order
+  races and best-effort cross-tab coordination are bounded explicitly in Spec 1.
+- Protected API/session-verification failures never set/delete cookies; login
+  replaces invalid cookies, explicit logout deletes them. Signals require fresh
+  verification, not assumptions about the current browser cookie/account.
 - Do not store session tokens in `localStorage`.
 - Protect state-changing requests against CSRF with an appropriate SameSite
   policy and server-side origin validation.
@@ -158,8 +166,10 @@ creating another order.
 - Do not expose a Supabase secret or service-role key to browser code.
 - Deny direct anonymous access to application tables and credential data.
 - Keep privileged database access on the backend.
-- If a service-role key is used, it bypasses RLS: the backend must enforce
-  authorization on every endpoint. RLS does not replace those checks.
+- Use restricted backend pg roles and app_private, not a browser Supabase client
+  or service-role key. Shared custom-session authorization runs on every endpoint.
+  Spec 3's narrow SECURITY DEFINER helper locks technicians without granting
+  runtime technician UPDATE. RLS does not identify these custom sessions.
 - Do not assume custom session cookies populate Supabase Auth identity or
   make policies based on `auth.uid()` work automatically.
 - Keep migrations version-controlled and use synthetic development data.
@@ -168,7 +178,7 @@ creating another order.
 
 ## Form and Business Rules
 
-| Field | Proposed behavior |
+| Field | Confirmed behavior (Spec 3) |
 | --- | --- |
 | Order number | Database-generated; show "Generated when created" before saving |
 | Customer name | Required; trim input and reject blank values |
@@ -180,18 +190,17 @@ creating another order.
 | Assigned technician | Required; valid technician reference |
 | Admin notes | Optional |
 
-Recommended initial service types: installation, servicing, and repair.
+Confirmed initial service types: installation, servicing, and repair.
 Seed technicians: Ali, John, Bala, and Yusoff, each with a stable database ID.
 
-Recommended order-number format: `SO-000123`, generated from a database
+Confirmed order-number format: `SO-000123`, generated from a database
 sequence or identity-backed value with a unique constraint. Gaps are acceptable.
 Never generate numbers from client-side record counts or promise a reserved
 number before saving.
 
-Mandatory assignment, field optionality, service types, MYR pricing rules,
-and order-number formatting remain proposed defaults to confirm during
-implementation. If unassigned creation is allowed instead, store those orders
-as `New`; assigned orders use `Assigned`.
+Mandatory assignment, optional notes, service types, MYR and numbering are
+confirmed by Spec 3. Unassigned order creation is not supported. Private drafts
+may be incomplete and have no operational status/assignment/number.
 
 ## Frontend Requirements
 
@@ -204,6 +213,8 @@ as `New`; assigned orders use `Assigned`.
 - Order detail: saved fields, order number, status, technician, creation
   metadata, and confirmed creation feedback when arriving after submission.
 - Access denied: clear explanation and a sign-out option for unauthorized users.
+- My drafts and draft editor: creator-only manual save/resume/delete/submit,
+  version conflicts and exact-key uncertain-outcome reconciliation under Spec 3.
 
 ### Form Behavior
 
@@ -243,9 +254,11 @@ as `New`; assigned orders use `Assigned`.
 | Users | ID, unique email, password hash, role, active flag |
 | Sessions | Token hash, user ID, created timestamp, expiry timestamp |
 | Technicians | Stable ID, display name |
-| Orders | Internal ID, unique order number, submitted fields, technician ID, status, creator, creation time, assignment actor/time, idempotency key |
+| Orders | Internal ID, sequence-backed number, submitted fields, technician ID, status, creator and assignment actor/time |
+| Drafts | Creator-only incomplete fields, version, save times, retained submitted-order link |
+| Operation receipts | Account/key uniqueness, normalized fingerprint, original operation/result metadata; not copied customer payload |
 
-Store money using fixed-precision numeric values or integer minor units, not
+Store money using integer sen as Spec 3 specifies, not
 floating-point storage. Use foreign keys for technician and actor references.
 Derive actors from the authenticated backend session, not a trusted form field.
 
@@ -281,8 +294,7 @@ duplicates after network timeouts. Retry protection must exist on the backend.
 - WhatsApp notifications.
 - Deployment or external service provisioning without explicit request.
 
-The saved-order detail page is a recommended extension of the assessment's
-optional post-submission summary. WhatsApp remains a separate optional feature.
+Saved detail and private drafts are approved extensions. WhatsApp remains out of scope.
 
 ## Verification and Acceptance
 
@@ -306,10 +318,10 @@ optional post-submission summary. WhatsApp remains a separate optional feature.
 
 ## Documentation Alignment
 
-Before implementation, align `AGENTS.md` and `DESIGN.md` with the approved real
-login architecture. Their current mock-identity guidance reflects the earlier
-scope. Document confirmed business defaults, verified commands, setup steps,
-and security limitations as implementation proceeds.
+AGENTS.md and DESIGN.md are aligned with approved real auth/drafts/detail.
+Specs 1-4 own exact integrated contracts and acceptance. Document verified
+commands, setup and security limitations as implementation proceeds; none of
+the future scripts is currently established or verified.
 
 The existing Supabase schema and configuration have not been inspected as part
 of this planning discussion. Do not assume tables, constraints, permissions,

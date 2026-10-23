@@ -26,14 +26,17 @@ Required fields:
 - Assigned technician
 - Admin notes
 
-Mock technicians: Ali, John, Bala, Yusoff.
+Seed technicians: Ali, John, Bala, Yusoff (stable IDs, not login accounts).
+Admin notes are optional; final assignment is mandatory. Specs 1-4 in `specs/`
+are the authoritative integrated implementation-ready design, not working code.
+Approved scope includes real admin authentication, read-only order list/detail,
+and private manually saved versioned drafts with uncertain-outcome reconciliation.
 
 Prioritize a responsive, accessible form, reliable persistence,
 validation, and clear submission feedback. Admin users primarily
 work on desktop, but the interface must also work on mobile.
 
 Optional enhancements, only when requested:
-- Show an order summary after submission.
 - Send a WhatsApp notification to the assigned technician.
 
 Out of scope unless explicitly requested:
@@ -42,9 +45,8 @@ Out of scope unless explicitly requested:
 - Manager review workflows
 - KPI dashboards
 - AI features
-- Real authentication
 
-A mock admin identity or role selector is sufficient.
+No mock identity or role selector substitutes for approved real authentication.
 
 ## Tech Stack
 
@@ -58,10 +60,10 @@ A mock admin identity or role selector is sufficient.
 Module 1 does not currently require file uploads. Do not add an upload
 feature solely to use Supabase Storage.
 
-Additional choices, including language, build tooling, package manager,
-testing tools, and deployment, are not yet established. Do not treat
-the assessment's suggested tools as confirmed decisions beyond the
-stack listed above.
+Approved foundation: TypeScript, Node 24 LTS, Fastify, pg, React/Vite/React Router,
+Tailwind, npm workspaces with one lockfile; Vitest/RTL, database integration tests
+and Playwright. Same-origin frontend/API, custom database sessions, no Supabase
+Auth. Dependency versions and deployment provider remain execution choices.
 
 ## Setup and Commands
 
@@ -85,9 +87,10 @@ should be traceable to an actor and timestamp.
 Order numbers must be unique, auto-generated, and safe under concurrent
 submissions. Do not rely on client-side record counts to generate them.
 
-The assessment does not specify whether technician assignment is
-mandatory or how order numbers are formatted. Settle these decisions
-during implementation and document them rather than silently assuming.
+Spec 3 settles mandatory technician assignment, initial Assigned status, MYR
+0.00..999999.99 integer-sen storage and sequence-backed SO-000001 numbering
+(minimum six digits, expands, gaps allowed). Drafts have no order number or
+operational assignment. Do not reopen these as pending business decisions.
 
 Do not describe role switching or client-side checks as real security.
 
@@ -108,9 +111,10 @@ Do not describe role switching or client-side checks as real security.
 - Keep schema changes in version-controlled migrations.
 - Never commit credentials, API secrets, or real customer data.
 - Never expose Supabase service-role keys in browser code.
-- Use Row Level Security and Storage policies for access control
-  when real authentication is introduced.
-- Clearly document security limitations when using mock identities.
+- Use the private app_private schema and restricted backend database roles in
+  Specs 1/3. Deny browser/Data API access; custom sessions do not set auth.uid().
+- Backend authorization is mandatory; do not claim Supabase Auth RLS protects
+  custom sessions. Use the narrow technician lock function, not runtime writes.
 - Use synthetic data for development and demos.
 - Do not run destructive database operations or modify a shared
   environment without explicit approval.

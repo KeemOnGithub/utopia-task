@@ -1,6 +1,6 @@
 # Spec 2: Service Orders Homepage and My Drafts
 
-Status: reviewed discovery draft; blocked on Spec 3/4 contracts and Spec 1 integration amendments. Not implementation-ready. No application behavior has been implemented or verified.
+Status: approved integrated implementation-ready design. No application behavior has been implemented or verified.
 
 ## Goal and Scope
 
@@ -28,14 +28,12 @@ Confirmed through discovery:
 
 Resolved dependencies from Spec 1: TypeScript, Node 24 LTS, Fastify, pg, React/Vite/React Router/Tailwind, npm workspaces, Vitest/RTL, Fastify integration tests, Playwright; relative same-origin `/api`; UUID IDs; camelCase; `{data}` success; shared errors; UTC ISO timestamps with milliseconds; custom database-backed authentication; shared shell and recovery store.
 
-Blocking gates:
+Settled dependencies: Spec 3 exports canonical DTOs, MYR money, schema and
+draftEditPath; Spec 4 accepts detail/return integration; Spec 1 owns cursor-safe
+routing, generation and lifecycle. Foundation/schema implementation precedes
+execution; there are no open shared product contracts.
 
-1. Spec 3 must export canonical order summary field types, money/currency/precision, service/status values and labels, technician references/nullability, immutable creation timestamp/UUID semantics, and SQL table/column names. Decimal-string money is only proposed in Spec 1.
-2. Spec 3 must export draft summary mappings/types, structural empty-value normalization, last-saved timestamp semantics, creator column, unsubmitted predicate, and resume route. It owns version checks, save/load/delete and atomic submission/reconciliation.
-3. Spec 4 must confirm `/orders/:orderId` integration, return-location behavior, and explicit Service orders action after creation. The route is reserved by Spec 1 but the detail contract is not available.
-4. Spec 1 must allow validated `cursor` query parameters on `/orders` and `/drafts` recovery targets, register both shell destinations, and expose the cache-clearing/auth-generation boundary below.
-
-Earlier mock-auth guidance in AGENTS.md/DESIGN.md is superseded by Spec 1. Preserve compatible visual/accessibility tokens. Shared documentation alignment remains Spec 1's implementation task. Assessment examples do not establish business enums or currency.
+AGENTS.md/DESIGN.md reflect the approved real-auth scope. Preserve compatible visual/accessibility tokens. Assessment examples do not override Spec 3 enums or currency.
 
 Deferred: additional features listed in exclusions, deployment, and infrastructure provisioning. Do not add them to complete this spec.
 
@@ -44,7 +42,7 @@ Deferred: additional features listed in exclusions, deployment, and infrastructu
 - `/` replaces with `/orders` under Spec 1. Protected list routes are `/orders` and `/drafts`; optional `?cursor=<token>` selects an older position.
 - Shell links: Service orders and My drafts, with `aria-current="page"`. Switching sections through a shell link opens the target's newest page. No draft-count badge.
 - Each list has h1, one primary Create service order link to `/orders/new`, secondary Refresh button, results region, persistent feedback region, and pagination where applicable.
-- Order number links to `/orders/:orderId`. Draft label links through Spec 3's unresolved resume-route adapter. Do not invent `/drafts/:id` or query-based resume behavior.
+- Order number links to `/orders/:orderId`. Draft label uses draftEditPath(id), `/drafts/:draftId/edit`.
 - An authenticated entry fetches persisted summaries. No local submission state substitutes for this query.
 - Creation opens saved detail under Specs 3/4. Explicit Service orders return fetches page one. Existing-detail return restores its originating cursor, scroll and order-link focus where possible, then revalidates.
 - After successful manual draft save, choosing My drafts fetches page one. Without a save, return restores/revalidates prior location after Spec 3 resolves unsaved-change navigation.
@@ -58,7 +56,9 @@ Orders field order: order number, customer name, service type, assigned technici
 
 Draft field order: customer label, service type, proposed technician, quoted price, Last saved. Derive primary label from nonblank saved customer name, otherwise `Untitled draft`. No title field, UUID label, completion percentage, order number or operational status. Missing optional draft summary values show `Not provided`; zero money is not missing. Proposed technician is never labeled Assigned.
 
-Spec 3 supplies service/status display mappings, money formatting and order-technician nullability. Do not silently substitute arbitrary enum labels, floating-point conversion, currency, or an unassigned fallback before that agreement.
+Consume Spec 3 display maps Installation/Servicing/Repair and Assigned, and
+formatMoney for MYR. Order technician is nonnull, never Unassigned. Draft price
+missing shows Not provided; incomplete shows Incomplete price; money includes zero.
 
 Use absolute timestamps such as `23 Oct 2026, 15:19 MYT`, explicitly formatted with `timeZone: 'Asia/Kuala_Lumpur'`, English month labels and 24-hour time. Use `<time dateTime={utcTimestamp}>`; summary API timestamps follow Spec 1. Prices/identifiers use tabular numerals. Status includes readable text, never color alone. Render all user text as text, not HTML.
 
@@ -88,11 +88,29 @@ States: initialLoading, ready, firstPageEmpty, locationEmpty, fetchingWithResult
 | 429 | Persistent retry guidance, honor Retry-After before enabling retry; no automatic request |
 | Transport/500/503 | Recoverable operational error; never reinterpret as logout |
 
-Keep current cursor in URL; keep cursor stack, scroll and originating item ID in tab-local memory/navigation state only. Full reload can preserve current cursor but loses Previous history/scroll. A directly opened older page offers Next and Back to newest; Previous is disabled until locally established history exists. Browser popstate reuses known history where available and fetches the target without pushing another entry.
+Keep current cursor in URL; keep cursor stack, scroll and originating item ID in
+an account-bound tab-local memory map only. Router history.state may contain only
+an opaque random navigation key, never context. Resolve keys only in the current
+account's map. Refresh loses map/history/scroll even if a history key survives.
+A direct older page offers Next and Back to newest, Previous disabled until
+local history exists. Popstate fetches the target without pushing another entry.
+
+Spec 1 suspend/resume/destroy is authoritative: nondestructive visibility,
+sessionChange and deliberate login privately retain completed rows and restart
+interrupted reads once with exact target/intent on
+same-account verification. A 401 clears rows but retains navigation for refetch;
+network verification failure keeps state hidden, not logged out. Destroy clears
+the map synchronously. Never leave loading dependent on an invalidated callback.
 
 Each request has AbortSignal plus monotonically increasing request ID and auth-generation/account binding. Only the latest mounted request in the current auth generation may commit data, URL, feedback, history or focus. Abort on unmount or superseding fetch; cancellation is not an error. Clearing state after 401/logout/forbidden also invalidates in-flight callbacks, so a late 200 cannot expose data. Deduplicate auth transitions through Spec 1. Never store protected data in localStorage, sessionStorage, service workers or broadcast messages.
 
-Same-account reauthentication refetches the requested location, not cached protected rows; different-account login destroys both lists' navigation histories. Keep the validated desired cursor in Spec 1's allowlisted return location. An old cursor does not transfer draft ownership. Explicit logout clears tab-local caches/history; saved database drafts remain unaffected. Visibility-triggered auth checks hide protected content per Spec 1 but do not themselves refetch list data after successful same-account verification.
+After confirmed 401, same-account reauthentication refetches the requested
+location, not cached rows. Without a confirmed 401, same-account verification/
+deliberate login rebinds hidden ready rows without refetch. Different-account login
+destroys both navigation histories. Keep the validated cursor in Spec 1 safe-return.
+An old cursor never transfers ownership. Explicit/logout-signal destruction clears
+caches/history; saved database drafts remain. All domain auth failures are
+cookie-neutral under Spec 1, even delayed 401; no list handler deletes cookies.
 
 ## Listing API Contracts
 
@@ -101,9 +119,26 @@ Same-account reauthentication refetches the requested location, not cached prote
 - `GET /api/service-orders` or `GET /api/service-orders?cursor=<token>`
 - `GET /api/drafts` or `GET /api/drafts?cursor=<token>`
 
-No request body. Authenticate/authorize using Spec 1 before domain query. Reject any query key except cursor, duplicate cursor, empty cursor, arrays/objects, and tokens over 1,024 characters with 400 MALFORMED_REQUEST. No creator, sort, limit, status or filter parameters. Use strict Fastify query handling that detects duplicate keys rather than accepting parser last-value behavior. Authenticated list reads have no business mutations or session renewal.
+No request body; reject any body with 400 after authentication. Authenticate/
+authorize using Spec 1 before domain parameter validation/query. Reject any query
+key except cursor, duplicate cursor, empty cursor, arrays/objects and tokens over
+1024 characters with 400 MALFORMED_REQUEST. No creator/sort/limit/status/filter
+parameters. Detect duplicate keys rather than parser last-value behavior.
+Authenticated reads have no business mutations or session renewal.
 
 Cursor: versioned base64url-encoded structured metadata containing version, list kind, exact database ordering timestamp and UUID boundary. Use fixed schema, bounded decoded input, strict timestamp/UUID validation, and reject cross-list/unsupported versions. Preserve full Postgres timestamp precision; never round-trip the boundary through JavaScript Date or the millisecond summary timestamp. No customer fields. Cursor signing is not required: altering a valid position changes traversal only, never access scope. Validate before parameterized SQL; no raw SQL fragments from cursors. A syntactically valid boundary need not correspond to a currently existing record. Do not expire cursors solely on elapsed time.
+
+Exact codec shared with Spec 1 safe-return: unpadded canonical base64url of UTF-8
+JSON with only `{v:1,kind:'orders'|'drafts',at:string,id:string}`, written in that
+property order. Reject noncanonical base64url, padding, invalid UTF-8, duplicate
+JSON keys, unknown keys and decoded bytes >768. `at` is UTC
+`YYYY-MM-DDTHH:mm:ss.ffffffZ`, six fractional digits, valid Gregorian year
+0001..9999/date/time, seconds 00..59, no offsets/leap seconds. `id` uses Spec 4
+strict UUID shape canonicalized lowercase. Encode timestamp directly from a SQL
+UTC text projection with six fractional digits, not pg's Date parser. For SQL,
+bind validated at as timestamptz. Browser codec validates calendar components
+without losing fractional digits. Cursors are public traversal metadata, never
+customer fields or ownership evidence.
 
 ### Response Types
 
@@ -112,28 +147,17 @@ type Page<T> = {
   items: T[];
   pagination: { nextCursor: string | null; hasNextPage: boolean };
 };
-type OrderSummary = {
-  id: string; // UUID
-  orderNumber: string;
-  customerName: string;
-  serviceType: CanonicalServiceType;
-  assignedTechnician: CanonicalOrderTechnician;
-  quotedPrice: CanonicalQuotedPrice;
-  status: CanonicalOrderStatus;
-  createdAt: string; // UTC ISO milliseconds
-};
-type DraftSummary = {
-  id: string; // UUID
-  customerName: CanonicalDraftCustomerName;
-  serviceType: CanonicalDraftServiceType;
-  proposedTechnician: CanonicalDraftTechnician;
-  quotedPrice: CanonicalDraftQuotedPrice;
-  lastSavedAt: string; // UTC ISO milliseconds
-};
+type OrderSummary = Pick<ServiceOrder,
+  'id'|'orderNumber'|'customerName'|'serviceType'|'assignedTechnician'|
+  'quotedPrice'|'status'|'createdAt'>;
+// Import and re-export DraftSummary from Spec 3 drafts.ts.
 type ListingResponse<T> = { data: Page<T> };
 ```
 
-Canonical-prefixed names above are dependency placeholders, NOT approved types to implement as unknown/any. Spec 3 must resolve them and agree these exported JSON property names before implementation. Draft projection excludes version and editable full payload; load current version via Spec 3. Both DTOs exclude actor/session/credential fields and sensitive order-detail fields.
+Import ServiceOrder and DraftSummary from Spec 3 contracts. Draft customerName,
+serviceType and proposedTechnician are nullable; quotedPrice is the
+missing/incomplete/money union. Draft projection excludes version/full payload;
+load current version via Spec 3. Neither summary exposes actors or sensitive details.
 
 200 always returns a page, including empty results. Fetch 26 rows, return at most 25; hasNextPage is true iff an extra row exists. nextCursor is generated from the last returned row iff hasNextPage, otherwise null. Never generate it from the lookahead row. Empty page returns items=[], hasNextPage=false, nextCursor=null.
 
@@ -159,51 +183,49 @@ Synthetic error examples (X-Request-ID matches requestId):
 {"error":{"code":"SERVICE_UNAVAILABLE","message":"Could not load service orders. Try again.","requestId":"cccccccc-cccc-4ccc-8ccc-cccccccccccc"}}
 ```
 
-Nonempty example shape, deliberately NOT a wire-valid fixture until Spec 3 resolves placeholders:
+Exact synthetic nonempty fixtures:
 
-```text
-data.items[0]:
-  id: 11111111-1111-4111-8111-111111111111
-  orderNumber: <Spec 3 canonical synthetic number>
-  customerName: Demo Customer A
-  serviceType: <Spec 3 canonical service value>
-  assignedTechnician: <Spec 3 technician DTO for synthetic technician>
-  quotedPrice: <Spec 3 canonical synthetic money value>
-  status: <Spec 3 canonical initial status>
-  createdAt: 2026-10-23T07:19:00.000Z
-data.pagination: {nextCursor: null, hasNextPage: false}
-
-data.items[0] for drafts:
-  id: 22222222-2222-4222-8222-222222222222
-  customerName: <Spec 3 empty-value representation>
-  serviceType: <Spec 3 empty-value representation>
-  proposedTechnician: <Spec 3 empty-value representation>
-  quotedPrice: <Spec 3 empty-value representation>
-  lastSavedAt: 2026-10-23T07:19:00.000Z
+```json
+{"data":{"items":[{"id":"30000000-0000-4000-8000-000000000001","orderNumber":"SO-000001","customerName":"Demo Customer A","serviceType":"repair","assignedTechnician":{"id":"10000000-0000-4000-8000-000000000001","name":"Ali"},"quotedPrice":{"currency":"MYR","amount":"150.00"},"status":"assigned","createdAt":"2026-10-23T07:40:00.000Z"}],"pagination":{"nextCursor":null,"hasNextPage":false}}}
 ```
 
-Replace placeholders with exact nonempty JSON examples as a dependency-gate task; do not invent currency/enums to make this draft look complete.
+```json
+{"data":{"items":[{"id":"20000000-0000-4000-8000-000000000001","customerName":null,"serviceType":null,"proposedTechnician":null,"quotedPrice":{"kind":"incomplete"},"lastSavedAt":"2026-10-23T07:40:00.000Z"}],"pagination":{"nextCursor":null,"hasNextPage":false}}}
+```
 
 ## Database Query and Consistency
 
-Use backend pg and app_private under Spec 1's restricted runtime role; no browser Supabase client or privileged credentials. Schema/table definitions belong to Spec 3. Select only summary columns and necessary technician display columns, not SELECT * or full draft JSON. If draft payload storage prevents narrow projection, agree explicit SQL extraction/projection with Spec 3.
+Use backend pg and app_private under Spec 1's restricted runtime role; no browser
+Supabase client or privileged credentials. Spec 3 owns scalar domain columns.
+Select only summary/technician columns, not SELECT * or full draft payload.
 
-Order query semantic shape: `WHERE (created_at, id) < ($cursorTime::timestamptz, $cursorId::uuid)` when cursor supplied; `ORDER BY created_at DESC, id DESC LIMIT 26`. Only persisted orders, never union drafts. Spec 3 must guarantee immutable ordering columns and server timestamps.
+Order query shape: `WHERE (o.created_at,o.id) < ($1::timestamptz,$2::uuid)`
+when cursor supplied; `ORDER BY o.created_at DESC,o.id DESC LIMIT 26`. Only
+persisted orders, never union drafts. Spec 3 defines immutable keys/server times.
 
 Draft query adds creator ID from Actor plus the canonical unsubmitted predicate, then analogous `(last_saved_at, id)` keyset boundary and ordering. No client creator ID. Creator filtering applies in SQL before LIMIT; never fetch all creators and filter in React. Avoid joins that duplicate rows or drop allowed nullable technician references; exact join type follows Spec 3 nullability.
 
-Required indexes, owned/coordinated with Spec 3 migration: orders `(created_at DESC, id DESC)` and a drafts index supporting creator equality, unsubmitted restriction and `(last_saved_at DESC, id DESC)`, preferably partial if the canonical lifecycle supports a stable partial predicate. Names/columns/migration number remain unresolved. Do not duplicate domain migrations. Inspect plans on synthetic multi-page data and verify index support; do not require an index scan for tiny fixtures.
+Spec 3 migration 002_service_orders_and_drafts.sql owns indexes on
+app_private.service_orders(created_at DESC,id DESC) and
+app_private.service_order_drafts(creator_account_id,last_saved_at DESC,id DESC)
+WHERE submitted_order_id IS NULL. Use those exact tables/columns/predicate.
+Orders INNER JOIN technicians; drafts LEFT JOIN technicians without active-only
+filter. Project quoted_price_sen/currency for orders and backend-only
+quoted_price_input for draft parsing, per Spec 3 Narrow Listing Projections.
+Do not duplicate migrations. Verify plans on multi-page synthetic data; tiny
+fixtures need not use an index scan.
 
 Each request reads current committed data in one SQL statement; no long-lived transaction or snapshot token. New inserts ahead of an order cursor do not shift subsequent pages. Timestamp ties are deterministic by Postgres UUID ordering. No guarantee for backdated inserts behind the boundary or future mutations outside this scope. Draft saves change ordering and can cause omissions/repeats across requests; approved tradeoff. Previous refetches a boundary, not an immutable historical page. Refresh is the recovery path. No misleading global count or strict snapshot promise.
 
 ## Module Ownership and Signatures
 
-Concrete proposed files within Spec 1's foundation; resolve naming collisions before work:
+Concrete files within Spec 1's foundation:
 
 | File | Responsibility and contract |
 | --- | --- |
-| packages/contracts/src/listings.ts | Export Page, OrderSummary, DraftSummary and response types once canonical imports are agreed; browser-safe only |
-| apps/api/src/listings/cursor.ts | decodeCursor(raw,kind): CursorPosition; encodeCursor(position,kind): string; strict bounded validation, exact timestamp text, typed malformed error |
+| packages/contracts/src/listings.ts | Export Page, OrderSummary, re-export Spec 3 DraftSummary and response types; browser-safe only |
+| packages/contracts/src/listing-cursor.ts | Browser-safe exact cursor codec shared by API and Spec 1 safe-return validation |
+| apps/api/src/listings/cursor.ts | Re-export shared codec and map its validation errors to typed MALFORMED_REQUEST |
 | apps/api/src/listings/queries.ts | listOrderSummaries(db,position): Promise<Page<OrderSummary>>; listDraftSummaries(db,actor,position): Promise<Page<DraftSummary>>; narrow parameterized queries, lookahead and DTO mapping |
 | apps/api/src/listings/routes.ts | registerListingRoutes(app): void; strict query validation, requireAdmin, creator derivation, shared error mapping/no-store |
 | apps/web/src/api/listings.ts | fetchOrders(cursor,signal): Promise<Page<OrderSummary>>; fetchMyDrafts(cursor,signal): Promise<Page<DraftSummary>>; shared apiRequest, typed errors, no retries |
@@ -212,7 +234,7 @@ Concrete proposed files within Spec 1's foundation; resolve naming collisions be
 | apps/web/src/pages/DraftsPage.tsx | Private draft presentation, derived labels and Spec 3 resume adapter |
 | apps/web/src/listings/format.ts | KL timestamp formatting; consume rather than redefine Spec 3 money/enum formatters |
 
-CursorPosition contains exact database timestamp text and UUID; kind distinguishes orders/drafts. Queries receive Pool/PoolClient-compatible query capability from Spec 1, not frontend credentials. Database errors propagate through shared sanitized handling. Fetch wrappers unwrap `{data}` exactly once, consistent with shared apiRequest's final signature. Do not independently redefine ApiError or Actor.
+CursorPosition contains exact database timestamp text and UUID; kind distinguishes orders/drafts. Queries receive Pool/PoolClient-compatible query capability from Spec 1, not frontend credentials. Database errors propagate through shared sanitized handling. Fetch wrappers call apiRequest<Page<T>> which already unwraps data; never unwrap again. Do not redefine ApiError or Actor.
 
 Spec 1 owns App.tsx, AuthProvider, safe return resolver, shell and shared client. Spec 3 owns canonical domain contracts/form/resume loader/migrations. Spec 4 owns detail page. Integration edits to owned shared files must be coordinated rather than overwritten.
 
@@ -223,7 +245,7 @@ Unit:
 - Cursor round-trip with microsecond timestamp precision, UUID ties, invalid base64url/JSON/schema/version/kind, empty/oversize cursor, repeated/unknown parameters.
 - Pagination 0/1/25/26 rows, last-returned-row cursor, hasNextPage consistency and empty metadata.
 - KL time independent of browser timezone, UTC day rollover, semantic datetime, fixed English 24-hour output.
-- Draft fallback label, blank customer handling, absent fields versus zero price; canonical formatter tests after Spec 3 agreement.
+- Draft fallback label, blank customer handling, missing/incomplete/money prices including zero; canonical formatter parity with Spec 3.
 - Request reducer/hook: overlap, out-of-order completion, abort, auth generation changes, exact retry intent, refresh failure without navigation reset, Previous history loss on reload.
 
 Database/API integration on isolated synthetic Postgres:
@@ -245,34 +267,60 @@ Browser acceptance:
 - Returning from detail restores item focus/scroll and revalidates; missing originating row uses heading. Explicit return after creation fetches newest orders; after save fetches newest drafts.
 - Leaving during pending read and late success after logout/401 never repopulate protected content; different-account recovery clears all list state.
 - Expiry and forbidden behavior delegates correctly; network failure never logs out. Visibility rechecks auth without unnecessary list refetch.
+- Ready lists survive hidden nondestructive visibility/sessionChange/deliberate
+  login checks for the same account without domain refetch; interrupted GETs
+  restart once. Confirmed 401 discards rows/refetches after auth, destroy clears
+  all. Late list 401 carries no Set-Cookie and cannot erase a newer login cookie.
 - Draft resume obtains latest version; concurrent submission/deletion is handled by Spec 3, then return refresh removes dead items.
 - Keyboard, screen-reader loading/result/error announcements, focus behavior, long text, 200% zoom and 360/768/1280/1440 layouts; all fields readable without horizontal page overflow.
 
 ## Ordered Small-Agent Tasks
 
-1. Resolve dependency gates with Specs 1/3/4. Finalize canonical imports, concrete nonempty JSON fixtures, resume route, query columns/indexes, response unwrapping and auth-cache invalidation contract. No implementation agent should guess these.
+1. Consume settled canonical imports, fixtures, routes, SQL names, Spec 1 lifecycle and unwrapped API contract; implement shared cursor codec first.
 2. After Spec 1 scaffolding and Spec 3 schema are available, implement listings contracts and cursor codec with unit tests. Own listings contract/codec files only; coordinate domain imports.
 3. Implement narrow SQL projections and indexes through Spec 3 migration ownership. Verify isolated-database pagination precision, ties, ownership, exclusions and insert behavior.
 4. Implement two GET routes using shared authorization/error contracts. Verify Fastify injection tests, duplicate-query rejection, no-store and outages.
 5. Implement fetch adapters and navigation/request-state hook. Verify stale-response, exact retry, auth-generation and history tests before UI integration.
-6. Implement OrdersPage and DraftsPage, semantic desktop/mobile layouts and focus/status behavior. Consume canonical formatters and unresolved-now resume adapter only after gate resolution.
+6. Implement OrdersPage and DraftsPage, semantic desktop/mobile layouts and focus/status behavior. Consume canonical formatters and draftEditPath.
 7. Coordinate Spec 1 shell/router/safe-return changes and Specs 3/4 explicit return actions. Verify browser journeys, expiry/logout, saved drafts and back navigation.
-8. Critically review contract consistency and run established checks. Record actual results and remaining deployment-only gaps; update draft status only after gates are resolved.
+8. Review contract consistency and run established checks. Record actual results and remaining deployment-only gaps; never confuse design readiness with working code.
 
 Spec 1 requires future root commands `npm run build`, `npm run typecheck`, `npm run lint`, `npm run test:unit`, `npm run test:integration`, `npm run test:e2e`, and `npm run db:migrate`. They are not currently established or verified. Do not claim they ran. Migration/test execution requires isolated configured databases; this specification grants no provisioning, deployment or shared-database modification permission.
 
-Completion requires resolved gates, exact concrete DTO fixtures, passing available unit/integration/browser checks, private draft isolation, stable order keyset traversal under new inserts, complete failure/auth states, accessible mobile/desktop presentation and no application secrets in browser code. Approval of this draft is not evidence of implementation correctness.
+Implementation completion requires the exact DTO fixtures, passing available unit/integration/browser checks, private draft isolation, stable order keyset traversal under new inserts, complete failure/auth states, accessible mobile/desktop presentation and no application secrets in browser code. Design approval is not evidence of implementation correctness.
 
 ## Integration Contract
 
-Consumes Spec 1: Actor/requireAdmin, API error/request-ID/no-store conventions, same-origin API client, auth generation/invalidation, protected routing, shell, safe cursor return targets and route focus. Same-account recovery refetches; different-account/logout clears.
+Consumes Spec 1: Actor/requireAdmin, API errors/request IDs/no-store, same-origin
+client, generation/lifecycle, protected routing/shell, safe cursor return and
+focus. Recovery after confirmed 401 refetches; nondestructive same-account
+verification rebinds ready snapshots; different-account/logout destroys memory.
 
-Consumes Spec 3: canonical order/draft summary field types and formatters, schema projections, immutable order ordering keys, mutable draft last-saved semantics, creator/unsubmitted predicate, index migration support, latest-draft loader and exact resume-link builder. Resume dependency remains unresolved; do not use list rows as editable form state.
+Consumes Spec 3: canonical summary types/formatters, schema projections, immutable
+order ordering keys, mutable draft last-saved semantics, creator/unsubmitted
+predicate, indexes, latest-draft loader and draftEditPath. List rows are not
+editable form state.
 
 Consumes Spec 4: detail route integration and originating list return context. Explicit post-create Service orders action requests newest page; existing-detail return preserves location.
 
-Exports: protected `/orders` and `/drafts`; GET `/api/service-orders` and GET `/api/drafts`; fixed 25-item Page contract; summary JSON property names above pending canonical agreement; opaque kind-specific cursor query; deterministic descending timestamp/UUID order; no totals; creator-only unsubmitted draft list; fresh-first-page intents after creation/save; memory-only list-return context `{pathname, cursor, originatingItemId, scrollY}` plus internal cursor history. Context is never an authorization claim and is validated before navigation.
+Exports: protected `/orders` and `/drafts`; GET `/api/service-orders` and GET
+`/api/drafts`; fixed Page/summary contracts; kind-specific cursors; descending
+timestamp/UUID order; no totals; private unsubmitted drafts; fresh-page intents.
+`rememberListReturn(binding,context): string` stores validated
+`{pathname:'/orders'|'/drafts',cursor,originatingItemId,scrollY}` in memory and
+returns an opaque UUID key; `resolveListReturn(binding,key)` returns context or
+null only for the same account; `clearListNavigation()` destroys the map.
+`openOrders(intent: DetailReturnIntent):void` implements Spec 4 newest/restore
+behavior; draft editor has analogous `openDrafts` with newest/restore intent.
+Validate cursor kind, UUID item ID and finite nonnegative scrollY. Private stores
+rebind on verified same-account resume, clear on destroy, never enter history
+except the opaque key. Context is not authorization. Spec 1 owns shared routing
+calls; Spec 2 owns map, cursor stack, revalidation and restoration.
 
 ## Critical Review and Remaining Risks
 
-Spec 1's safe-return resolver currently rejects arbitrary query strings; cursor support is an explicit integration gate, not silently assumed agreement. Its visibility auth requirement overrides any interpretation of no-focus-refetch that would skip session checks. Millisecond API timestamps cannot be used to reconstruct precise SQL cursors. Draft mutable ordering intentionally lacks snapshot guarantees. Submitted drafts must be excluded by canonical lifecycle state, not by assuming every record without an order number is an active draft. Exact money/nullability/resume behavior remains blocked rather than encoded with invented defaults. No final implementation-ready claim is permitted until these contracts are settled.
+Spec 1 accepts only this validated cursor query on list return targets and owns
+visibility checks. Millisecond DTO times cannot reconstruct SQL cursors. Draft
+mutable ordering intentionally lacks snapshot guarantees. Exclude submitted
+drafts through submitted_order_id IS NULL, not order-number heuristics. SQL
+schema, money/nullability and resume behavior are settled by Spec 3.

@@ -1,6 +1,6 @@
 # Spec 3: Create and Assign a Service Order
 
-Status: business decisions confirmed through discovery; domain specification complete. Implementation is gated on the explicit shared-contract amendments below and Spec 1 foundation. Spec 4 has not been supplied, so its integration acceptance remains open. No application, migration, or test has been implemented or run by this specification.
+Status: approved integrated implementation-ready design. Spec 1 foundation is an execution prerequisite, not an unresolved contract. No application, migration, or test has been implemented or run by this specification.
 
 ## Goal, Scope, and Dependencies
 
@@ -12,7 +12,9 @@ Exclude order editing/deletion/reassignment, arbitrary status updates, technicia
 
 Inherit specs/01-authentication.md: TypeScript, Node 24 LTS, Fastify, pg, React/Vite/React Router, Tailwind, npm workspaces, Vitest/RTL/Fastify integration/Playwright; custom database-backed sessions, not Supabase Auth. Backend owns authorization, validation, and database access. Use its Actor, error envelope, request IDs, no-store headers, CSRF/origin checks, same-origin client, memory-only RecoveryStore, and auth-generation invalidation. Do not implement competing helpers.
 
-AGENTS.md and DESIGN.md mock-auth and optional-detail guidance are superseded by the approved real-auth and detail flow. Preserve compatible design/accessibility rules. Spec 1 owns documentation alignment. Repository inspection found documentation only, including Specs 1 and 2; no schema, code, tooling, or database was inspected. Proposed commands below are not verified commands.
+AGENTS.md and DESIGN.md reflect approved real-auth, drafts and detail scope.
+Preserve compatible design/accessibility rules. Repository inspection found
+documentation only; no database was inspected. Future commands are not verified.
 
 ## Confirmed Decision Ledger
 
@@ -70,8 +72,8 @@ Use a discriminated state, not overlapping independent loading booleans. Auth st
 | fieldErrors | Inputs retained; focus first invalid control; correcting input clears/rechecks that field; explicit action validates again |
 | mutating | Capture immutable request/key/baseline; announce progress; confirmed result -> editing, detail, or drafts; definitive rejection -> editing/conflict; transport/ambiguous server error -> uncertain |
 | uncertain | Preserve original operation/payload/key. Block other mutations and editing. Check result -> reconciling; explicit Retry same request -> mutating |
-| reconciling | completed receipt -> apply confirmed outcome; not_found -> uncertain with explicit same-key retry; read failure -> uncertain; never automatically mutate |
-| conflict | Keep local work; load latest read-only preview/metadata; confirmed reload -> editing with current baseline; Save as separate draft -> explicit new create; submitted -> submittedDraft |
+| reconciling | Matching completed receipt -> apply confirmed outcome except sticky key-conflict/mismatch rules below; not_found -> uncertain with explicit same-key retry; read failure -> uncertain; never automatically mutate |
+| conflict | Discriminate by the Conflict Actions table; preserve local work. Only version conflict permits reload/separate draft directly; busy/key/mismatch never share that generic action set |
 | submittedDraft | Noneditable message and saved order link; no save/delete/submit; preserve conflicting unsaved work in memory until discard/leave confirmation if present |
 | missing | Non-disclosing Draft not found. Back to my drafts. Recovered local work may explicitly be saved as a separate draft after pending outcome reconciliation |
 | loadError | Persistent error and explicit Retry; never show empty draft as fallback |
@@ -84,7 +86,12 @@ Read requests use AbortSignal plus request sequence and account/auth-generation 
 
 ## Form Matrix and Normalization
 
-All API request objects are strict: reject unknown properties, wrong types, arrays where objects expected, invalid UUIDs, NUL, and unpaired UTF-16 surrogates. No implicit number-to-string coercion. Count valid Unicode code points, not UTF-16 units. Normalize CRLF and CR to LF before length validation; no Unicode NFC/NFKC conversion. Draft text preserves all other whitespace. Apply limits before final trimming as well as after normalization, so oversized padding cannot bypass bounds. Final text trim uses ECMAScript trim semantics; shared tests pin its behavior. Postgres checks use equivalent explicit edge-whitespace checks for normalized final values rather than relying solely on btrim's default ASCII-space behavior.
+All API request objects are strict: reject unknown properties, wrong types, arrays
+where objects expected, invalid UUIDs, NUL and unpaired UTF-16 surrogates. No
+implicit coercion. Count Unicode code points; check raw bounds, normalize CRLF/CR
+to LF, then check normalized bounds before final trimming. No NFC/NFKC conversion.
+Draft text preserves other whitespace. Final trim uses ECMAScript semantics;
+shared tests pin parity with explicit SQL edge-whitespace checks, not btrim alone.
 
 | Field / label | Frontend | Request field | Draft DB | Final DB / rules |
 | --- | --- | --- | --- | --- |
@@ -139,13 +146,22 @@ type OrderEditorRecoveryV1 = {
     state: 'inFlight' | 'uncertain' | 'checking' | 'retryAvailable';
   };
   submissionKey: string | null;
-  listReturn: null | { pathname: '/orders' | '/drafts'; cursor: string | null; originatingItemId: string | null; scrollY: number };
+  conflictCode: null | 'DRAFT_VERSION_CONFLICT' | 'DRAFT_ALREADY_SUBMITTED' |
+    'VERSION_EXHAUSTED' | 'OPERATION_BUSY' | 'IDEMPOTENCY_CONFLICT' |
+    'RECONCILIATION_MISMATCH';
+  listReturnKey: string | null; // opaque reference into Spec 2 account-bound memory map
 };
 ```
 
 Account ID and exact allowlisted returnPath live in Spec 1's outer RecoverySnapshot. Include submission key when a logical attempt exists, not a new key invented on restore. pending requestBody is the immutable attempted body; fields and savedBaseline are separate. Capturing an in-flight operation restores it as uncertain. Invalid/mismatched snapshots are destroyed, never submitted. No credentials or tokens enter this payload; no localStorage, sessionStorage, URLs, logs, telemetry, or broadcasts.
 
 Same-account recovery: no automatic mutation. Uncertain operations require user Check result or explicit same-key retry. Otherwise reload current draft version without overwriting recovered local values; unchanged version restores editor, changed version enters conflict, submitted enters submittedDraft, deleted enters missing with separate-draft option. Read-only technician reload is allowed. Cross-account success and explicit logout clear all recovery state before protected page mounting. Visibility rechecks follow Spec 1 and must not overwrite edits.
+
+Use Spec 1 suspend/resume/destroy, not independent visibility handlers. Keep
+fields, baseline, dirty/conflict state privately through temporary verification;
+restart interrupted draft/technician/reconciliation GETs once on same-account
+resume without replacing edited values. Dispatched mutations become uncertain;
+only reconciliation reads may restart, never the mutation. Destroy clears all.
 
 ## Exportable Canonical Types
 
@@ -209,7 +225,20 @@ Primary label: customerName ?? 'Untitled draft'. Null summary service/technician
 
 ## API Conventions and Contracts
 
-All endpoints require active admin, Spec 1 no-store/errors/request IDs; mutations require exact origin, JSON and X-CSRF-Protection: 1. Mutation body limit 96 KiB (sufficient for bounded four-byte Unicode text); reject larger with 413. Reject unknown request fields. No automatic mutation retries. Protected read endpoints have no business side effects.
+All endpoints require active admin, Spec 1 no-store/errors/request IDs; mutations
+require exact origin, JSON and X-CSRF-Protection: 1. Body limit is 192 KiB
+(196608 UTF-8 bytes), including DELETE JSON. The largest field set is 12282
+code points; escaped supplementary Unicode can require 12 ASCII bytes per point
+(147384 bytes), plus bounded keys/envelope/UUID/version well below 1 KiB.
+This also covers six-byte BMP escapes, escaped controls and CRLF within the
+raw bounds. Enforce raw text code-point bounds before LF normalization as well
+as normalized bounds; do not permit arbitrary padding. Reject compressed request
+bodies (unsupported Content-Encoding) with 415; count actual received bytes,
+including chunked bodies, independent of Content-Length. Test maximum fields
+with literal four-byte Unicode, surrogate-pair JSON escapes, BMP escapes and
+CRLF, exact 196608-byte admission then schema validation, and 196609-byte 413.
+Body admission is not semantic acceptance. No automatic mutation retries.
+Protected read endpoints have no business side effects.
 
 Every mutation requires `Idempotency-Key: <UUID v4>` generated with browser crypto.randomUUID(), not timestamps/random Math.random. Missing/invalid key is 400 MALFORMED_REQUEST. One account-wide key namespace spans all five operations; reusing a key across routes/operations conflicts. Keys are not credentials. Never accept actor, order number, status, currency, or server timestamps in input. GETs reject unknown query parameters. Standard common errors/statuses from Spec 1 apply, including 401, 403, 413, 415, 429 if infrastructure applies, 500/503. No new domain rate limiter.
 
@@ -227,7 +256,14 @@ type CreateOrderRequest = { fields: OrderFields };
 type SubmitDraftRequest = { expectedVersion: number; fields: OrderFields };
 ```
 
-expectedVersion is an integer 1..2147483646. Reject version exhaustion as 409 VERSION_EXHAUSTED rather than overflow/wrap. Draft version starts 1; each successful save/submission increments by one. Delete validates version but removes row. Same-key replay never increments version again. Save of unchanged content through API is allowed and increments once, even though UI avoids it.
+expectedVersion accepts every integer 1..2147483647. Draft version starts 1;
+successful save/submission increments once. Only save/submit at the maximum
+current matching version returns 409 VERSION_EXHAUSTED, never overflow/wrap.
+Delete at maximum version is allowed because it does not increment. Check
+ownership/lifecycle/version before exhaustion, and receipt replay before all
+these checks. Same-key replay never increments. Unchanged API saves increment
+once even though UI avoids them. Test maximum version load, save, submit, delete
+and historical replay plus out-of-range/noninteger request rejection.
 
 ### Draft Endpoints
 
@@ -282,9 +318,11 @@ Read-only reconciliation; UUID v4 key, no query/body. Scope query by Actor.accou
 ```ts
 type OperationCheck =
   | {state:'not_found'}
-  | {state:'completed'; operation:'createDraft'|'saveDraft'; targetDraftId:string|null; result:DraftSavedResult}
+  | {state:'completed'; operation:'createDraft'; targetDraftId:null; result:DraftSavedResult}
+  | {state:'completed'; operation:'saveDraft'; targetDraftId:string; result:DraftSavedResult}
   | {state:'completed'; operation:'deleteDraft'; targetDraftId:string; result:DraftDeletedResult}
-  | {state:'completed'; operation:'createOrder'|'submitDraft'; targetDraftId:string|null; result:OrderCreatedResult};
+  | {state:'completed'; operation:'createOrder'; targetDraftId:null; result:OrderCreatedResult}
+  | {state:'completed'; operation:'submitDraft'; targetDraftId:string; result:OrderCreatedResult};
 ```
 
 Envelope is `{data:OperationCheck}`. not_found means no committed visible receipt at read time, not guaranteed nonexecution. Reconcile successful draft saves by GET current draft: original save metadata remains true even if now deleted/submitted/newer. Completed deletes return to newest My drafts; completed order operations navigate to detail. An operation type/target mismatch against local captured intent is a client consistency error: do not mutate/navigate blindly; retain state and show a safe error.
@@ -298,6 +336,36 @@ Envelope is `{data:OperationCheck}`. not_found means no committed visible receip
 ```
 
 409 IDEMPOTENCY_CONFLICT: This request key was already used for a different request. No fieldErrors. Do not automatically replace its key and resubmit. A known rolled-back lock timeout returns 409 OPERATION_BUSY with message This operation is still being processed. Check its result or retry the same request. It does not prove another attempt failed. Unexpected SQL errors are sanitized 500/503 and considered uncertain by the client. No SQL/constraint names/customer values are exposed or logged.
+
+### Discriminated Conflict Actions
+
+`conflict` is a union keyed by code, retaining captured local work; do not expose
+one generic Reload/Save separately dialog for every 409.
+
+| Discriminator | Safe actions |
+| --- | --- |
+| DRAFT_VERSION_CONFLICT | GET latest owned draft; explicit discard-confirmed reload or new-key separate draft; no force overwrite |
+| DRAFT_ALREADY_SUBMITTED | GET owned draft, View order; local unsaved fields may explicitly become separate draft after original uncertainty resolved; never retry submission with new key |
+| VERSION_EXHAUSTED | Explain draft cannot be saved/submitted further; explicit separate draft or expected-version deletion with confirmation; no retry increment |
+| OPERATION_BUSY | Keep original key/body frozen; Check result or explicit exact same-key retry; no reload/discard/separate mutation while uncertain |
+| IDEMPOTENCY_CONFLICT | Freeze intent, Check result; do not auto replace key or offer overwrite. A matching operation/target receipt may establish historical completion only; do not claim conflicting local fields were saved. Preserve them for deliberate separate work after review/discard |
+| RECONCILIATION_MISMATCH (local, not API code) | Receipt operation/target differs from captured intent: retain input/key, block apply/navigation/writes, allow read-only check retry or guarded leave. Never treat another result as this submission's success |
+
+All errors have persistent actionable feedback, no fieldErrors on these conflicts.
+Busy/uncertain and mismatch states cannot silently unlock a new logical mutation.
+Keep key-conflict/mismatch discrimination sticky in editor/recovery state through
+GET retries and auth suspension. In these states, generic completed-receipt
+handling cannot reset baseline, clear input or create a success handoff.
+For IDEMPOTENCY_CONFLICT a matching type/target proves only the earlier key's
+historical result, not payload equality (fingerprint is private). Show an explicit
+View earlier order/read current draft action, no creation banner for the
+conflicting intent; deliberate discard/review is required before separate work.
+A mismatch remains blocked until guarded leave/discard; no mutation-based repair.
+Test conflict recovery across same-account login, not just immediate UI.
+VERSION_EXHAUSTED message is `This draft has reached its version limit. Save
+your changes as a separate draft or delete this draft.` No mutation/receipt is
+written on this rejection. Test each conflict discriminator independently, with
+local input preservation, permitted/forbidden actions and no automatic new key.
 
 ## Database Schema and Migration Ownership
 
@@ -323,6 +391,60 @@ Expose orderNumber by pure formatting from unique order_number_value: `SO-` plus
 
 Indexes: service_orders(created_at DESC,id DESC); partial service_order_drafts(creator_account_id,last_saved_at DESC,id DESC) WHERE submitted_order_id IS NULL; service_orders(assigned_technician_id), service_orders(created_by_account_id), service_orders(assigned_by_account_id); drafts(proposed_technician_id); operations(result_order_id). PK/UNIQUE provide receipt lookup, number uniqueness, source/submitted links. Draft partial index does not cover submitted rows; add drafts(creator_account_id) for owner FK/history queries. Avoid redundant indexes on unique columns. Runtime grants SELECT/INSERT orders and receipts, SELECT/INSERT/UPDATE/DELETE drafts, SELECT technicians, and sequence USAGE; no order UPDATE/DELETE, no receipt UPDATE/DELETE, no technician writes. Migration-owner seeds technicians. Account hard-deletion remains excluded.
 
+### Restricted Technician Lock Function
+
+Postgres row-locking SELECT requires UPDATE privilege, so runtime must not issue
+technician SELECT FOR SHARE directly. Migration 002 creates
+`app_private.lock_active_technician(p_id uuid) RETURNS boolean`, LANGUAGE plpgsql,
+VOLATILE SECURITY DEFINER, SET search_path = pg_catalog. Its fixed body selects
+`t.is_active INTO v_active FROM app_private.technicians AS t WHERE t.id=p_id
+FOR SHARE` and returns `COALESCE(v_active,false)`. Lock the row even when inactive;
+missing returns false. No dynamic SQL, arbitrary relation/column input, writes,
+commit, actor inference or public API exposure. All relation references are schema
+qualified and builtins resolve in pg_catalog. Caller separately authorizes admin.
+
+Exact function definition (migration also applies the ownership/grants below):
+
+```sql
+CREATE FUNCTION app_private.lock_active_technician(p_id uuid)
+RETURNS boolean
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
+DECLARE
+  v_active boolean;
+BEGIN
+  SELECT t.is_active INTO v_active
+  FROM app_private.technicians AS t
+  WHERE t.id = p_id
+  FOR SHARE;
+  RETURN COALESCE(v_active, false);
+END;
+$$;
+```
+
+Owner is dedicated NOLOGIN NOSUPERUSER NOBYPASSRLS role
+`app_technician_lock_owner`, with USAGE app_private and SELECT plus column-level
+UPDATE(is_active) on technicians solely to permit row locking; it owns no table
+or schema, has no CREATE/schema, other domain or account privileges. Migration
+role creates/transfers function ownership using provisioning permissions, then
+revokes temporary CREATE/membership privileges. Runtime has no membership in
+this owner and no SET ROLE path. Revoke EXECUTE from PUBLIC, anon, authenticated
+and any default-grant roles in the same migration transaction; grant EXECUTE on
+this exact uuid signature only to `app_runtime`. Runtime retains SELECT only on
+technicians. app_private is not PostgREST exposed. Trusted operator deactivation
+uses UPDATE is_active on the same row (no delete/reinsert), which conflicts with
+FOR SHARE and waits until caller transaction commits/rolls back. Function locks
+persist in the caller's transaction, not merely through function return. Invoke
+only after draft lock and after receipt replay check, on the same PoolClient.
+
+Restricted-role tests SET ROLE app_runtime: helper succeeds in a transaction,
+direct SELECT FOR SHARE and INSERT/UPDATE/DELETE fail, owner role cannot be
+assumed, PUBLIC/anon/authenticated cannot execute. Two real connections verify
+deactivation waits through helper return until commit/rollback; if deactivation
+wins first, helper returns false. Check search_path hijacking cannot redirect
+relations, and exact receipt replay after deactivation bypasses the helper.
+
 Operational draft fields/creator/created_at are not updated after submission. Saved draft lifecycle is derived from submitted_order_id, not an ambiguous order status column. Orders id/created_at are immutable; draft id/creator/created_at immutable, last_saved_at changes only on manual save; submission increments version and sets submitted_at but preserves last_saved_at (it is no longer listed). After acquiring locks and validating, capture clock_timestamp() once in Postgres for the mutation and explicitly use it for changed timestamps and receipt result_timestamp; order creation/assignment and draft submission share this value. Defaults are safeguards, not frontend timestamp inputs. Do not use transaction-start now() for a save that waited on a lock: a later winning save could otherwise move last_saved_at backwards. Serialize DTOs to milliseconds; Spec 2 cursors use exact database precision. Wall-clock adjustments remain an infrastructure limitation, not a strict monotonic-clock promise.
 
 ### Narrow Listing Projections for Spec 2
@@ -339,15 +461,34 @@ Generate one UUID v4 when a user explicitly starts a logical mutation after clie
 
 Fingerprint is SHA-256 over UTF-8 deterministic JSON of `{contractVersion:1,operation,targetDraftId,expectedVersion,fields}` with fixed property order, explicit nulls and no unknown fields. Omit absent concepts only by fixed contract (use null expectedVersion/fields for operations that lack them). For draft operations fields are LF-normalized raw draft strings/nulls, preserving whitespace; delete fields=null. For order operations fields are final normalized strings, canonical fixed-scale quotedPrice, and null notes. Thus semantic final equivalents (12 versus 12.00, trimmed customer edges) replay; different draft whitespace, version, target, operation, technician, or meaningful final text conflicts. Never include cookies/session token/key in the fingerprint. Store only digest, not full payload. Syntax/type/bound validation needed for canonicalization runs before receipt lookup; successful replay bypasses later current technician/lifecycle/version validation. Keep contractVersion=1 behavior stable for retained receipts; future changes require explicit migration/version compatibility design.
 
+Serialize using JSON.stringify on a freshly built object in the displayed outer
+property order, with fields in DraftFields/OrderFields declaration order (one
+property per declaration, left to right); lowercase all UUIDs first. Never hash
+client key order or undefined. Advisory key is the first eight digest bytes of
+UTF-8 `${accountId}:${operationKey}` (lowercase UUIDs), SHA-256, read as signed
+big-endian int64; pass its decimal string to pg_advisory_xact_lock(bigint).
+
 ### Mutation Algorithm
 
 All writes use one pg PoolClient transaction. Use READ COMMITTED, bounded database statement/lock timeouts (initially lock_timeout 5s, statement_timeout 15s scoped SET LOCAL), rollback on any failure, and always release client. No external side effects inside transaction.
 
-1. Shared CSRF/media/body checks. Resolve request shape and canonical fingerprint safely. Start transaction and re-resolve session/account/active admin on that same client before domain reads/writes. Spec 1 must export a transaction-compatible authorization function; preHandler-only authorization is insufficient for this contract.
-2. Acquire transaction-scoped advisory lock derived deterministically from accountId plus operationKey (e.g. first signed 64 bits of SHA-256). Hash collisions cause harmless extra serialization, never replace exact PK lookup. Same algorithm across API instances. This lock covers the absent-receipt race; it releases on commit/rollback.
+1. Enforce shared Origin/header/media/encoding/body-byte and JSON framing safety
+   first (these transport errors may precede auth). Run shared requireAdmin before
+   route/key/version/field domain validation, so unauthenticated invalid domain
+   requests yield 401/403, not field/existence information. Then strict structure,
+   types, Unicode/raw bounds, normalization and pure semantic validation produce
+   the canonical fingerprint. Start transaction and call Spec 1 authorizeAdmin
+   on this PoolClient again before receipt/domain queries. Do not perform mutable
+   eligibility, ownership/version or technician checks during canonicalization.
+2. Acquire the transaction-scoped advisory lock using the exact derivation above.
+   Hash collisions cause extra serialization, never replace exact PK lookup.
+   Same algorithm across API instances; lock releases on commit/rollback.
 3. SELECT receipt by exact account/key. If present, compare fingerprint and operation/target; mismatch -> 409 IDEMPOTENCY_CONFLICT, no writes. Match -> return stored original result/status after transaction completes. Replay is authorized even if target draft was deleted or selected technician deactivated; never recreate missing draft.
-4. For targeted drafts, SELECT ... WHERE id=$id AND creator_account_id=$actor FOR UPDATE. No row -> 404. If submitted -> DRAFT_ALREADY_SUBMITTED (exact successful replay already returned). Check expected version, then non-exhaustion. Current structural/final validation runs without consuming a key on rejection.
-5. If selected technician is nonnull, verify active row and lock FOR SHARE until commit; technician deactivation UPDATE must serialize behind it. Nonexistent/inactive -> 422. Do not acquire technician locks before draft locks in any path. A new draft without technician needs no technician lock.
+4. For targeted drafts, SELECT ... WHERE id=$id AND creator_account_id=$actor FOR UPDATE. No row -> 404. If submitted -> DRAFT_ALREADY_SUBMITTED (exact replay already returned). Check expected version, then exhaustion only for save/submit. No successful receipt on rejection.
+5. If selected technician is nonnull, call app_private.lock_active_technician($id)
+   on this client. False ->422 assignedTechnicianId. Lock lasts until commit.
+   Never direct runtime SELECT FOR SHARE or general technician UPDATE grants.
+   No technician lock before draft lock; null selection/delete needs none.
 6. Capture the database mutation timestamp after locks/validation. Perform exactly the domain mutation: createDraft INSERT; saveDraft UPDATE full fields/version/time; deleteDraft DELETE; createOrder INSERT complete order; submitDraft INSERT order with source_draft_id then UPDATE locked draft with submitted link/time/version. Submit does not first persist current edited draft fields or create a separate assignment row. The submitted order is authoritative for final submitted values; retained draft fields remain last manually saved values.
 7. INSERT successful operation receipt with original result metadata in the same transaction. Uniqueness/check/FK failures roll back all domain and receipt writes. For submit, order and draft link cannot partially commit.
 8. COMMIT before sending success. Only committed receipt/result is reconciliable. A commit-acknowledgment loss is uncertain, not guaranteed rollback. Do not send 201 before commit.
@@ -380,7 +521,11 @@ Navigate with replacement to `/orders/${orderId}` and memory-only navigation con
 
 Spec 4 independently fetches saved order by UUID through its authenticated API. After successful load and equality of ID/number with confirmation, show persistent polite status Order SO-000001 created successfully. If detail load fails, explain Order SO-000001 was created, but its details could not be loaded. Retry loading; never offer create-again. If returned record mismatches confirmation, suppress creation banner and show safe consistency feedback. Confirmation state is memory-only, cleared on logout/account change, and consumed into mounted detail state; reload/bookmark has no banner. Detail still works without it. Focus destination h1 and announce success without competing focus moves.
 
-Spec 4's Service orders action after creation requests fresh page one per Spec 2. Existing-detail navigation retains Spec 2 return context. Creation confirmation is not authentication or proof supplied by an arbitrary URL; any banner is tied to independently loaded record. Spec 4 must explicitly accept this interface before end-to-end implementation.
+Spec 4 accepts this interface and additionally compares createdAt. Spec 3 calls
+rememberCreatedOrder(binding,receipt) before replacement navigation; Spec 4 owns
+the function/store. Explicit Service orders requests fresh page one. Existing
+detail uses Spec 2's account-bound opaque context key, never serialized context.
+No URL establishes confirmation or authorization.
 
 ## Concrete Modules and Function Contracts
 
@@ -404,7 +549,12 @@ Use Spec 1 foundation paths; no generic repository/service/workflow layers. Func
 
 Typed results: DraftSavedResult `{draftId:string,version:number,savedAt:string}`; DraftDeletedResult `{draftId:string,deleted:true}`; OrderCreatedResult `{orderId:string,orderNumber:string,createdAt:string}`. executeEditorMutation returns result plus original HTTP status/operation discriminator; handlers unwrap/serialize once through shared conventions. Use errors.ts mapping for typed validation/not-found/conflict/busy/unavailable errors; no separate error envelope. Pure client validation reuses browser-safe rules where practical, but backend remains authoritative.
 
-Required Spec 1 amendment: expose `resolveSession(client,token)` or equivalent transaction-capable active-admin authorization so route can derive Actor within the same transaction, reusing cookie parsing and auth logic; do not duplicate sessions SQL independently. Existing requireAdmin preHandler still protects reads. Clarify apiRequest final generic returns unwrapped data exactly once for all specs. Router/logout dirty guards and auth-generation invalidation are shared interfaces, not independent implementations in this spec.
+Use Spec 1 authorizeAdmin(client,token) and shared cookie-neutral error mapping inside
+transactions, plus requireAdmin before domain validation. apiRequest<T> already
+returns unwrapped data. Router/logout guards and lifecycle are Spec 1 interfaces.
+Editor routes never emit Set-Cookie, including preliminary/transactional 401/403.
+Logout revokes only its presented session; frontend state clearing cannot cancel
+another tab's concurrent login or browser cookie response processing.
 
 ## Verification Plan
 
@@ -425,6 +575,11 @@ All data is synthetic. Integration tests use isolated configured Postgres and at
 
 - Bypass React: directly POST incomplete final data, forged actor/status/number fields, invalid precision, >max money, nonexistent/inactive technician, oversize text/body, and unknown properties. Expect documented 400/413/422; no order, draft mutation, or successful receipt.
 - Anonymous/expired/inactive ->401; active nonadmin ->403. Missing/bad Origin/header/content type cannot mutate. All endpoints return no-store/request IDs and sanitized errors. Database outage is not 401 or empty data.
+- With valid transport/JSON framing, unauthorized invalid fields/route/key/version
+  return auth errors before domain validation. Revocation between preliminary and
+  transaction auth denies receipt lookup/writes. Matched replay at maximum version,
+  after submission/deletion and technician deactivation bypasses mutable checks.
+  Body-byte/encoding errors may precede auth but never perform domain queries.
 - Two admins cannot load/save/delete/submit each other's drafts; all return indistinguishable 404, no version/lifecycle/receipt disclosure. Foreign operation key checks return not_found. Both may view submitted order through Spec 4 as Spec 2 permits.
 - Save incomplete draft: no order row, number sequence untouched, no assignment metadata; creator/time/version correct. Save preserves raw fields. Update increments once, created_at immutable, last_saved_at server-generated. Delete removes content, not receipts. Saved drafts survive logout.
 - Direct create returns correct canonical persisted fields, exact sen, assigned status, actor IDs from session, equal creation/assignment timestamps, unique number. No client metadata is trusted.
@@ -453,7 +608,7 @@ All data is synthetic. Integration tests use isolated configured Postgres and at
 
 ## Ordered Small-Agent Tasks and Gates
 
-1. Resolve shared integration amendments below before implementation. Spec 1 owns router/auth/client/guards; Spec 2 owns listing projections/types; Spec 4 accepts detail handoff. Freeze DTO examples, SQL names and migration number. Do not implement placeholders as any/unknown.
+1. Consume settled ownership/contracts below and Spec 1's integrated acceptance matrix. Foundation precedes domain execution; do not redefine shared helpers or DTOs.
 2. After Spec 1 scaffolding, implement domain contracts/price normalization/summary formatters/recovery validation and unit tests. Own packages/contracts/src/service-orders.ts and drafts.ts plus focused tests; coordinate listings imports rather than duplicate types.
 3. After 001_auth, implement 002 domain migration/seeds/grants/indexes on dedicated test DB. Own only 002; do not modify an applied migration. Verify numbering boundaries, constraints, privileges and Spec 2 keyset support.
 4. Implement backend validation, read queries, fingerprints and transactional mutations/receipts. Own apps/api/src/order-editor/*.ts. Gate completion on rollback, ownership, concurrency, changed-key payload and response-loss integration tests, not only happy-path injections.
@@ -467,19 +622,22 @@ Spec 1 requires future root scripts: npm run build, npm run typecheck, npm run l
 
 Completion criteria: exact agreed contracts implemented, isolated checks pass, no partial/duplicate same-key writes, creator-only drafts with safe version conflicts, correct money/numbering/actor/timestamps, no success before commit, usable uncertainty/session recovery without replay, accessible responsive workflows, and saved detail independently retrievable. Domain design approval is not proof of implementation or deployment correctness.
 
-## Required Cross-Spec Amendments
+## Accepted Cross-Spec Contracts
 
 ### Spec 1
 
-- Add /drafts/:draftId/edit to router and validated return-path allowlist; preserve Spec 2 cursor amendments separately.
-- Replace unresolved draft allocations with Spec 3 domain/editor/mutations and Spec 2 listing ownership. Accept typed OrderEditorRecoveryV1 payload and no-replay restoration.
-- Expose transaction-compatible session authorization, auth-generation/stale-callback invalidation, shared router/logout unsaved guard, and single data-unwrapping contract. Domain authorization occurs within write transaction without claiming retroactive revocation.
-- Accept Idempotency-Key as domain mutation header under existing same-origin CSRF policy; no change to credentials/cookie/security model.
-- Documentation alignment removes earlier mock-auth and optional-detail contradictions. Money proposal resolves to MYR fixed-scale response strings and integer-sen storage.
+- Router/safe-return includes /drafts/:draftId/edit and validated list cursors.
+- Spec 3 owns editor/mutations; Spec 2 owns lists; OrderEditorRecoveryV1 is the
+  typed payload for no-replay same-account recovery.
+- authorizeAdmin(client,token), generation/lifecycle and router/logout guard
+  are shared; apiRequest unwraps once. No retroactive revocation promise.
+- Idempotency-Key accompanies domain mutations under unchanged CSRF policy.
+- Supporting documents reflect real auth/drafts/detail and canonical MYR money.
 
 ### Spec 2
 
-- Replace canonical placeholders with ServiceType, assigned status, nonnull TechnicianRef, Money, and the DraftSummary union above. Retain its JSON field names and pagination.
+- Canonical imports are ServiceType, assigned status, nonnull TechnicianRef,
+  Money and DraftSummary above, with Spec 2 property names and pagination.
 - Draft price adds Incomplete price, distinct from Not provided; no arbitrary invalid raw amount is rendered or coerced. Customer summary trims to null; no title field.
 - Consume app_private.service_orders/service_order_drafts and specified indexes/joins, creator/unsubmitted predicate, last_saved_at semantics, and draftEditPath. Reuse canonical formatters.
 
@@ -501,7 +659,8 @@ Exact draft summary fixture for Spec 2:
 - Accept order-detail route and memory-only confirmed-creation state/independent load/banner contract, detail-failure messaging and explicit newest-orders return intent.
 - Spec 4 does not own draft editing or submitted-draft resume UI. Spec 3 returns an order link for that handoff.
 
-These amendments are explicit integration gates, not changes silently applied to other specifications. No unresolved business question remains from discovery; shared-interface acceptance and the absent Spec 4 remain blockers to claiming end-to-end execution readiness.
+These contracts are integrated into Specs 1, 2 and 4. No business or shared-interface
+decision remains open. Implementation and real test execution remain required.
 
 ## Consistency Review and Residual Limitations
 

@@ -1,6 +1,6 @@
 # Spec 4: View Saved Order Details and Creation Confirmation
 
-Status: discovery decisions confirmed; domain specification complete. Not implementation-ready until the shared integration gates below are resolved. Documentation only: no application code, packages, migrations, services, or tests were implemented or executed for this specification.
+Status: approved integrated implementation-ready design. Documentation only: no application code, packages, migrations, services, or tests were implemented or executed for this specification.
 
 ## Goal, Scope, and Dependencies
 
@@ -32,14 +32,11 @@ Concrete Spec 4 choices in this document: GET path, strict UUID parsing, exact D
 
 Deferred: human-readable actor names, historical technician-name snapshots and all exclusions. No implementation task may add these implicitly.
 
-Blocking shared integration gates:
-
-1. Spec 1 must freeze its auth-generation/account binding and synchronous protected-state invalidation interface, including hiding versus clearing during visibility checks and same-account recovery. Spec 4 requires the behavior specified below; no separate auth implementation is permitted.
-2. Spec 1 must finalize that `apiRequest<T>` returns unwrapped data exactly once, plus router lifecycle/focus integration. Domain wrappers must not guess whether T is an envelope.
-3. Spec 1/2 must accept validated cursor return targets and the concrete list-return adapter below. Spec 2's cursor allowlist amendment remains unapplied in Spec 1.
-4. Spec 3 must integrate the concrete account-bound handoff functions below, keeping its confirmed result shape and replacement navigation. This document explicitly accepts its memory-only handoff and independent retrieval contract.
-
-Spec 3's canonical schema/types resolve Spec 2's previously recorded order placeholders, but those amendments have not been applied to Spec 2. Spec 1 foundation and Spec 3 migration are execution prerequisites. Do not label cross-spec execution implementation-ready merely because this document describes the missing interfaces.
+Settled integration: Spec 1 owns generation/suspend/resume/destroy, unwrapped
+apiRequest<T>, routing and safe return; Spec 2 owns cursor codec and account-bound
+navigation map; Spec 3 calls this spec's handoff after confirmed creation.
+Spec 1 foundation and Spec 3 migration are execution prerequisites, not open
+interface decisions. All four designs are implementation-ready, not implemented.
 
 ## Routes and Exact Entry Flows
 
@@ -89,9 +86,22 @@ Follow DESIGN.md tokens and approximately 1120px content width. Desktop uses one
 
 Spec 3 result remains `OrderCreatedResult = {orderId,orderNumber,createdAt}`. Register only after its validated successful creation response or matching completed operation receipt. Bind handoff to current account and auth generation; no form object, query flag, draft row or list row establishes it. Receipt is UI evidence of a backend-confirmed result, not authorization or a security token.
 
-Use a tab-local in-memory store outside the page, keyed by orderId. A handoff contains receipt and returnIntent newestOrders. Never use React Router history.state for receipt storage, because browsers may preserve it across refresh; never use localStorage, sessionStorage, URL, logs, telemetry, service worker, or broadcasts. Router navigation state may carry only the separately validated non-sensitive Spec 2 return context.
+Use a tab-local in-memory store outside the page, keyed by accountId and orderId.
+A handoff contains receipt and returnIntent newestOrders. Never use history.state
+for receipt storage; no localStorage, sessionStorage, URL, logs, telemetry,
+service worker or broadcasts. Router state may carry only an opaque Spec 2
+navigation key, not even validated return context. Resolve that key through the
+current account's memory map; refresh loses map and context.
 
-Consume the handoff once into a detail visit owned above transient auth-gate rendering. Consumption must be idempotent for React development StrictMode effect replay; reserve/consume through a stable visit ID, not a destructive take inside a render initializer. Real route departure ends the visit and clears receipt/creation intent. StrictMode replay is not a departure. A temporary same-account session/visibility gate is not a route departure: retain receipt privately in memory but never render it while unauthorized/checking. Same-account recovery refetches; different-account login, FORBIDDEN, explicit logout and logout broadcasts destroy the visit and pending handoff before mounting protected content.
+Consume the handoff once into a detail visit owned above transient auth-gate
+rendering. Consumption is idempotent for StrictMode replay: reserve/consume through
+a stable visit ID, not destructive take during render. Real route departure ends
+visit/receipt/creation intent; StrictMode replay is not departure. Nondestructive
+visibility/sessionChange/deliberate login gates retain visit and ready detail
+privately, never rendered while checking; same-account resume rebinds ready data.
+Only confirmed 401 discards customer data and requires refetch after auth.
+Different-account login, FORBIDDEN, explicit logout and either logout broadcast
+destroy visit/handoff before mounting fresh content.
 
 Banner/state behavior:
 
@@ -200,7 +210,21 @@ On route/account change remove prior order data before starting a new read. No s
 
 Each read carries AbortSignal, increasing request sequence, requested ID, account ID and auth generation. Only latest mounted current-account/current-generation results may commit record, receipt feedback, navigation or focus. Abort on unmount/superseding read. Cancellation is not failure. A late 200 after logout/401/403 cannot restore protected data. Duplicate auth failures go through Spec 1's deduplicated transition.
 
-No polling, automatic retries or visibility-driven domain refetch. Visibility still triggers Spec 1 session checking and protected-content hiding. After a successful same-account visibility check, an already verified ready detail may remain; invalidated pending reads are restarted once after authorization rather than left loading forever. Same-account reauthentication refetches detail, never reuses a protected snapshot as current evidence. Do not automatically replay creation. The shared auth-generation interface must distinguish temporary verification from destructive logout/account change.
+No polling or automatic failure retries. Spec 1's nondestructive visibility,
+sessionChange and deliberate login suspensions all hide and privately retain ready
+detail snapshots plus visit/dismissal state. Successful same-account resume rebinds
+ready state without domain refetch; an interrupted pending GET restarts exactly
+once with its exact target. A confirmed 401 discards the customer snapshot but
+retains private visit/receipt; after auth, fetch detail afresh. Do not automatically
+replay creation. These rules follow shared suspend/resume/destroy, not an independent
+visibility-only policy.
+
+Destroy clears detail, visit, handoff and callbacks synchronously. Network/503
+verification retains private state hidden, never implies logout. Receipt
+registration requires a current authenticated binding; generation changes invalidate
+callbacks, not retained same-account receipts. Detail/session verification 401s
+never delete cookies; Spec 1's response-order limits apply, and no frontend guard
+claims to undo a delayed Set-Cookie or globally log out concurrent login sessions.
 
 Retry loading repeats only GET for the same canonical order ID. Disable repeated activation while pending. Clear the prior read error while loading; retain eligible historical creation feedback unless dismissed. Success replaces error with saved fields; another failure remains actionable. For an ordinary 404 no Retry is required; Service orders is the recovery path. Receipt-backed 404 offers read retry without claiming eventual availability.
 
@@ -246,7 +270,11 @@ Concrete boundaries; keep cohesive code, not generic repository frameworks. Inpu
 
 `binding` is `{accountId:string,authGeneration:number}` from Spec 1, and `receipt` is OrderCreatedResult. `DetailVisit` contains visitId, orderId, eligible receipt or null, dismissal and return intent; it never contains a ServiceOrder snapshot. `beginDetailVisit` is coordinated with committed route lifecycle, not invoked destructively during render. Duplicate begin for the same live visit returns the same claim; end is a real route-leave event. Auth checks may rebind a retained same-account visit to a new verified generation without making old callbacks valid.
 
-Spec 2 adapter requested: `openOrders(intent:DetailReturnIntent):void`, using its router/list store to request newest or restore context. Registering these exact adapters in shared files is a dependency-gate task; do not overwrite another owner's implementation. Different-account/forbidden/logout clearing must synchronously call clearDetailState, clear detail query data and invalidate callbacks. Same-account 401 retains only the private visit receipt/return intent, not rendered/cached customer data.
+Spec 2 exports `openOrders(intent:DetailReturnIntent):void`, using its account-bound
+map/router/list store for newest or restore. Resolve opaque keys before calling;
+do not accept serialized context from history. Different-account/forbidden/logout
+destruction synchronously calls clearDetailState and clears query data/callbacks.
+Same-account 401 retains private visit receipt/return intent, not customer data.
 
 ## Verification Scenarios
 
@@ -257,6 +285,12 @@ Unit and component tests:
 - Reused formatter gives exact MYR string and KL timestamp across browser timezone/day rollover; semantic time datetime remains UTC. LF/long Unicode content renders as text; null notes fallback; no HTML injection.
 - Handoff only from confirmed create/check results, account-bound matching, ID/number/time comparison, dismissal through retry, refresh loss, real departure loss, StrictMode replay stability, no storage/history-state persistence.
 - Loading/ready/missing/error/consistency transitions, exact read retry, duplicate activation prevention, abort/out-of-order completion, late results after auth invalidation, pending read resumption after verified auth.
+- For each visibility/sessionChange/deliberate-login suspension: ready snapshot
+  and dismissed banner remain private/hidden, same-account resume rebinds without
+  detail refetch; an interrupted GET restarts once. Confirmed 401 instead clears
+  customer data and refetches after auth; network failure retains hidden state,
+  and destroy clears all. A delayed detail 401 emits no cookie deletion and cannot
+  overwrite a newer login cookie or restore stale UI.
 - Initial focus, retry success/failure focus, dismiss focus, announcements without repeated rerenders, no Create another order outside ready.
 - Return context validation rejects external/malformed cursor/item/scroll data, creation intent beats older location, dismissal does not reset intent.
 
@@ -284,17 +318,17 @@ Browser acceptance:
 
 ## Ordered Small-Agent Tasks
 
-1. Resolve shared gates with owners: API unwrapping, auth-generation/hide-clear lifecycle, stable route visits, safe cursor return targets and openOrders adapter. Accept handoff producer integration in Spec 3. Own only contract amendments assigned for integration; do not silently modify other specs or use any/unknown placeholders to bypass gates.
+1. Consume Spec 1 lifecycle/client/router, Spec 2 navigation map and Spec 3 producer contracts. Use settled DTOs; implement stable route visits with StrictMode tests.
 2. After Spec 1 foundation and Spec 3 canonical types, implement OrderDetail alias/boundary validation and focused tests in Spec 4 contracts. Reuse canonical money/number/enum rules; coordinate shared validators if missing.
 3. After 001/002 schema availability, implement narrow detail query and GET route in order-detail backend files. Coordinate route bootstrap registration with Spec 1; do not touch Spec 2 listing routes or add migrations. Verify isolated API/auth/projection/error tests.
 4. Implement read wrapper/state plus memory handoff/visit lifecycle and return validator in Spec 4 web files. Gate on stale-read, account-change, StrictMode, dismissal/history and exact GET-retry tests before UI integration.
 5. Implement OrderDetailPage sections/responsive states/focus/announcements. Integrate Spec 1 shell/router and Spec 2 return adapter through owners. Verify RTL and desktop/mobile behavior.
 6. Coordinate Spec 3 confirmed create/reconciliation -> handoff -> replacement route. Verify direct-create, draft-submit, read-failure-after-success, refresh and no-duplicate-creation browser journeys.
-7. Cross-review all four specs and implemented boundaries, run established checks, record actual results and unresolved deployment-only checks. Only remove blocked status when shared contracts are actually settled; approval is not evidence code/tests exist.
+7. Cross-review all four implemented boundaries, run established checks and record actual results and deployment-only checks. Design approval is not evidence code/tests exist.
 
 Required future commands inherited from Spec 1: `npm run build`, `npm run typecheck`, `npm run lint`, `npm run test:unit`, `npm run test:integration`, `npm run test:e2e`, `npm run db:migrate`. None is currently established or verified in the inspected documentation-only repository. Implementation agents must inspect package scripts first, use the single npm lockfile, and run relevant available checks against isolated configured databases. This spec grants no permission to install/provision/deploy or mutate a shared environment during specification work.
 
-Completion requires resolved shared gates, exact DTO/API behavior, authorized persisted retrieval for both entry paths, refresh/direct-link independence, correct memory-only confirmation lifetime, read-only recovery after confirmed creation, correct list restoration/newest intent, no credential/storage leaks, passing available unit/integration/browser checks, and documented unverified checks. Do not claim real-world deployment security based only on local tests.
+Implementation completion requires exact DTO/API behavior, authorized persisted retrieval for both entry paths, refresh/direct-link independence, correct memory-only confirmation lifetime, read-only recovery after confirmed creation, correct list restoration/newest intent, no credential/storage leaks, passing available unit/integration/browser checks, and documented unverified checks. Do not claim deployment security based only on local tests.
 
 ## Integration Contract
 
@@ -308,4 +342,9 @@ Exports: protected `/orders/:orderId`; authorized `GET /api/service-orders/:orde
 
 Explicit acceptance of Spec 3: its creation handoff, independent detail fetch, receipt-vs-fetch-failure distinction, saved field schema, actor UUIDs, MYR, Assigned status, and fresh-list intent are accepted. Comparison additionally checks createdAt, already supplied by both canonical contracts. Spec 4 owns no draft endpoints or schema expansion.
 
-Consistency review: Spec 1's no protected browser persistence rules exclude the earlier hypothetical sessionStorage alternative. Actor-name recommendation is superseded by confirmed UUID display without account schema changes. Spec 2 return semantics are preserved, including its distinction between explicit navigation and browser history. Spec 3's banner-after-matching-fetch rule coexists with historical-created feedback during loading/failure; neither makes a read error a failed creation. Older AGENTS.md/DESIGN.md mock-auth/optional-detail text remains superseded, with alignment owned by Spec 1. Shared amendments remain explicit gates rather than silently assumed implementation.
+Consistency review: no sessionStorage or history-stored receipt/context. Actor
+UUIDs require no account schema change. Explicit list navigation differs from
+browser history. Matching-fetch banner coexists with historical-created feedback
+during read failure; neither makes a read error a failed creation. Supporting
+documents reflect approved real auth/drafts/detail. Remaining deployment settings
+and implementation verification are not unresolved interface decisions.

@@ -1,6 +1,6 @@
 # Spec 1: Admin Authentication and Session Lifecycle
 
-Status: approved design, not implemented or verified.
+Status: approved integrated implementation-ready design, not implemented or verified.
 
 ## Goal and Scope
 
@@ -13,8 +13,8 @@ Exclude registration, self-service password recovery, Supabase Auth, role
 switching, account-management HTTP endpoints, MFA, and order-domain workflows.
 Operator tooling is the only account-management interface.
 
-Repository inspection found documentation only: no application configuration,
-lockfile, migrations, existing specifications, or verified commands. No database
+Repository inspection found documentation and these four specifications only:
+no application configuration, lockfile, migrations, or verified commands. No database
 was inspected. The existing empty `spec/` directory is left untouched.
 
 ## Decision Ledger
@@ -43,15 +43,12 @@ Confirmed through discussion:
   retained order link. Specs 2-4 own implementation of these domain features.
 - This document supersedes conflicting mock-auth guidance in AGENTS.md and
   DESIGN.md. Preserve their compatible visual/accessibility requirements.
-  Documentation alignment is an implementation task, not performed here.
+  Supporting documentation is aligned with this approved scope.
 
-Proposed for cross-spec agreement: money is serialized as fixed-scale decimal
-strings, not JSON numbers. Spec 3 must confirm currency, scale, ranges, and
-database representation. Authentication does not depend on that decision.
-
-Unresolved dependencies: Specs 2-4 must allocate draft list/edit/detail endpoints
-and screens, and Spec 3 must implement the recovery/idempotency adapter below.
-These are integration gates, not permission to invent domain behavior here.
+Spec 3 owns canonical MYR money (0.00..999999.99), fixed-scale response strings
+and integer-sen storage, editor/draft APIs and reconciliation. Spec 2 owns both
+lists; Spec 4 owns saved detail and creation handoff. These contracts are settled;
+foundation implementation and deployment configuration are execution prerequisites.
 
 Deferred: hosting provider, actual proxy addresses, dependency patch versions,
 operational backup policy, and optional future MFA. A deployment is blocked
@@ -74,7 +71,8 @@ Frontend routes:
 | `/orders` | Spec 2: protected homepage |
 | `/orders/new` | Spec 3: protected creation screen |
 | `/orders/:orderId` | Spec 4: protected saved-order screen |
-| `/drafts` | Reserved protected My drafts screen; domain ownership to coordinate |
+| `/drafts` | Spec 2: protected My drafts screen |
+| `/drafts/:draftId/edit` | Spec 3: protected creator-owned draft editor |
 
 Unknown routes show a non-sensitive not-found page. API misses return JSON 404,
 not the SPA HTML fallback. Use camelCase JSON and opaque UUID strings for IDs.
@@ -112,6 +110,19 @@ Treat transport errors as unconfirmed outcomes, not authentication failures.
 Use `Cache-Control: no-store` for all API responses. Do not persist protected
 responses in browser storage or service workers.
 
+`apiRequest<T>` returns the single unwrapped `data: T`, never the envelope.
+For a 204 call use `apiRequest<void>`; do not parse a body. Other success statuses
+require a JSON object with data; malformed success is a local consistency error.
+Throw `ApiError` with status, code, message, optional fieldErrors, requestId and
+parsed Retry-After seconds for structured failures; malformed failures retain
+status with sanitized generic copy. Transport/abort errors remain distinct.
+The client never writes cookies, retries mutations, or interprets every 403 as
+FORBIDDEN. AuthProvider alone owns browser auth transitions. Only committed
+successful login sets a session cookie; only successful explicit logout deletes
+it. Protected APIs, current-session verification and all auth failures emit no
+Set-Cookie, including deletion. Shared authorization/error handling is cookie-neutral;
+domain SQL and client JavaScript never write cookies.
+
 ## Database and Trust Boundary
 
 Use a dedicated non-public `app_private` schema. Runtime queries are
@@ -119,6 +130,11 @@ parameterized and use a non-owner, non-superuser database role granted only the
 required table/sequence operations. Migration/provisioning credentials are
 separate from runtime credentials. Use direct Postgres via `pg`, not a browser
 Supabase client or service-role API key.
+
+The runtime role name is `app_runtime` (LOGIN, NOSUPERUSER, NOBYPASSRLS,
+NOINHERIT, no ownership/CREATE or privileged memberships). Migration/provisioning
+connections are trusted separate roles; runtime never receives their credentials.
+Schema USAGE and explicit object grants are required, not schema CREATE.
 
 Revoke schema/table/sequence access from PUBLIC, anon, and authenticated roles;
 exclude this schema from PostgREST exposure. Migration ownership remains with a
@@ -150,6 +166,48 @@ scheduler: delete expired sessions and rate-limit rows older than 24 hours.
 Cleanup is not required for expiry correctness. Logs must not contain SQL bind
 parameters. CI/test databases must be isolated and synthetic.
 
+### Auth Database Grant Matrix
+
+Migration 001 grants USAGE on app_private and only these auth-object privileges
+to app_runtime, with no grant option, ownership or privileged role membership:
+
+| Object | app_runtime privileges | Purpose / denied operations |
+| --- | --- | --- |
+| app_private.accounts | SELECT; column UPDATE(password_hash) only | Credential/session joins, locked login recheck and CAS rehash. No INSERT/DELETE or UPDATE of id/email/role/is_active/created_at/updated_at |
+| app_private.sessions | SELECT, INSERT, DELETE | Resolve sessions, insert fresh sessions, revoke presented session at login/logout. No UPDATE, expiry extension, TRUNCATE or maintenance endpoint |
+| app_private.login_limits | SELECT, INSERT; column UPDATE(window_started_at,attempt_count) only | Create buckets, lock, reset window and increment counts. No key/kind UPDATE, DELETE or TRUNCATE |
+
+No auth sequence grants are needed (UUID/default time generation is not a serial
+sequence). Revoke inherited/default broad table grants before applying this matrix.
+SELECT exposes password hashes only to the trusted backend role, never HTTP DTOs.
+Column UPDATE(password_hash) permits PostgreSQL SELECT ... FOR UPDATE on accounts
+without granting UPDATE of identity/role/activation columns. Successful login
+locks exactly its account with FOR UPDATE after Argon2 verification, rechecks the
+verified hash/status/role, optionally performs `UPDATE ... SET password_hash=$new
+WHERE id=$id AND password_hash=$verified`, and inserts the session in that same
+transaction. Rehash does not write updated_at; that column tracks trusted account
+administration here. No trigger may require broader runtime account privileges.
+Operator replacement/deactivation/revoke-sessions also take account FOR UPDATE
+before deleting sessions, ensuring login recheck serializes with these operations.
+Protected session/domain authorization is an ordinary unlocked SELECT; it does
+not inherit this credential-login lock or promise cancellation of authorized work.
+
+Limiter admission locks rows FOR UPDATE in the specified deterministic order;
+column UPDATE on either mutable limiter column permits that lock. Its INSERT
+or upsert changes only the granted mutable columns; no deletion is used to reset
+buckets. All statements use schema-qualified relations and parameterized values.
+
+Separate trusted provisioning/CLI role has schema USAGE, accounts SELECT/INSERT
+and UPDATE(password_hash,is_active,updated_at), sessions SELECT/DELETE, and
+login_limits SELECT/DELETE for documented account commands and cleanup-auth.
+Cleanup uses this trusted connection, not app_runtime: delete expired sessions
+and >24-hour-old limiter rows. Runtime's session DELETE is necessary for auth,
+but never exposed as arbitrary/all-session deletion through HTTP. Migrations
+remain owned by the separate trusted migration role. Neither trusted role nor
+its credentials/memberships is available to runtime. Role/email changes and test
+nonadmin fixtures require trusted migration/operator SQL outside the web API;
+the account CLI exposes only its listed commands.
+
 ## Passwords and Operator Tooling
 
 Use maintained Node `argon2` with Argon2id, memoryCost 65536 KiB, timeCost 3,
@@ -157,7 +215,8 @@ parallelism 1, random salt >=16 bytes, and hashLength 32 bytes. Store the encode
 hash with parameters. Benchmark the approved settings during implementation and
 report performance; do not silently weaken them. Rehash after successful
 verification if parameters differ, using a compare-and-swap update so concurrent
-password replacement cannot be overwritten.
+password replacement cannot be overwritten. Apply that CAS in the locked login
+transaction described in the grant matrix, not an independent post-login write.
 
 Count code points using `Array.from(password).length`, not JavaScript string
 length. Reject unpaired UTF-16 surrogates. Accept spaces and Unicode otherwise.
@@ -171,7 +230,7 @@ revoke-sessions, and cleanup-auth. Require interactive hidden password and
 confirmation prompts for creation/replacement; never accept passwords as argv,
 environment variables, logs, committed seeds, or HTTP payloads to an admin API.
 Email/account ID may be command arguments. Reject duplicate normalized emails.
-Replacement, deactivation, and revoke-sessions lock the account row and delete
+Replacement, deactivation, and revoke-sessions lock the account row FOR UPDATE and delete
 its sessions in the same transaction. Activation never restores sessions.
 Log only operation, target account ID, outcome, timestamp, and operator identity
 from the trusted operating environment. Infrastructure access governs this CLI;
@@ -226,14 +285,16 @@ always come from this join, never a supplied JSON field.
 
 Every protected request, including current-session, requires an active admin.
 Missing, malformed, unknown, expired sessions or inactive accounts return 401
-and clear the cookie. An active non-admin session returns 403 FORBIDDEN; retain
-its cookie only so logout can revoke it. Existing role changes are observed on
-the next request. Requests already authorized may finish; deactivation is not
+without Set-Cookie. An active non-admin session returns 403 FORBIDDEN, also
+without Set-Cookie. An invalid cookie remains unusable until successful login
+replaces it or explicit logout deletes it (or natural browser expiry removes it).
+Retaining it does not grant access; every request revalidates it. Existing role
+changes are observed on the next request. Requests already authorized may finish; deactivation is not
 retroactive cancellation. Spec 3 must authorize within its mutation transaction
 and lock the actor account consistently if it requires serialization against
 operator revocation. Do not promise immediate cancellation of in-flight work.
 
-Successful login locks/rechecks the account after verification, ensuring its
+Successful login locks/rechecks the account FOR UPDATE after verification, ensuring its
 password hash, active status and role have not changed before insertion. Revoke
 the session presented by that browser, if any, and insert a fresh session in
 the same transaction; never reuse its token. Other sessions remain valid.
@@ -243,8 +304,35 @@ no Domain, Max-Age=28800, Expires matching the database deadline. Local HTTP
 cookie: `dev_session`, same attributes except Secure omitted and no __Host-
 prefix. Development exception is permitted only in development with a loopback
 configured origin. Production startup rejects non-HTTPS origins or insecure
-cookie configuration. Cookie deletion uses the same name/path/security attributes
-with Max-Age=0 and an expired Expires value.
+cookie configuration. Explicit successful logout alone deletes the cookie using
+the same name/path/security attributes, Max-Age=0 and expired Expires.
+
+### Cookie Response Ordering and Concurrent Auth
+
+Ordinary protected 401/403 and every current-session response emit no Set-Cookie:
+a delayed failure for an old token must not delete a newer valid login cookie.
+Failed login/logout also emit none. The only cookie writers are committed login
+success and successful explicit logout (including idempotent missing-token logout).
+Frontend generations/AbortSignal control callbacks, not browser Set-Cookie
+processing; ignoring/aborting a response cannot undo a cookie already applied.
+
+Logout revokes only the token presented on that request, never all browser/account
+sessions. Concurrent login in another tab may establish a different session that
+logout does not revoke. Browser cookie response arrival order is not database
+commit order: a delayed logout deletion may remove the newer login cookie, leaving
+its valid server session unreachable; a delayed successful login may set its
+cookie after logout, leaving a valid session, or a revoked token that still fails
+authorization. Overlapping logins can likewise leave the browser holding a
+different session/account from an earlier response's JSON. No global sign-out or
+cross-tab linearization guarantee is provided. Unreachable sessions expire normally.
+
+Disable overlapping login/logout within one tab; BroadcastChannel signals hide
+and invalidate sibling UI best effort, not a lock or proof of current cookie state.
+After successful login, verify GET /api/auth/session freshly before mounting
+protected content, using its verified identity rather than blindly trusting login
+JSON. Received auth-change/completion signals likewise trigger fresh verification
+as below. Such checks are point-in-time observations; later cookie responses can
+still change identity. Backend authorization remains mandatory on every operation.
 
 ## Origin and CSRF Policy
 
@@ -256,14 +344,17 @@ For every POST/PUT/PATCH/DELETE under /api, before any side effects:
 2. Require application/json (optional charset accepted) and the exact custom
    header X-CSRF-Protection: 1. Missing custom header is 403 CSRF_REJECTED;
    incorrect media type is 415.
-3. Apply body limits and schema validation. Authentication endpoints cap JSON
-   bodies at 4 KiB. Other specs set their own explicit bounded payload limits.
+3. Apply byte limits and JSON framing validation. Authentication endpoints cap
+   JSON bodies at 4 KiB (sufficient for escaped bounded credentials). Reject
+   nonidentity Content-Encoding with 415. Domain schema/field validation follows
+   requireAdmin; Spec 3 defines canonicalization/transaction/replay ordering.
+   Other specs set explicit bounded payload limits.
 
 Apply this to login and logout, not just authenticated mutations. Do not enable
 CORS, reflect origins, accept form submissions, or use Referer as a fallback.
 No separate CSRF token is required with this same-origin-only contract. Safe GET
-requests must have no business mutations or session renewal. Cookie cleanup on
-invalid session is permitted. XSS defeats these browser protections: render text
+requests must have no business mutations, session renewal or cookie writes,
+including invalid-session cleanup. XSS defeats these browser protections: render text
 without raw HTML, use a production self-only script policy without unsafe-inline
 or unsafe-eval, frame-ancestors 'none', X-Content-Type-Options: nosniff, and
 Referrer-Policy: no-referrer. Host fonts/assets locally. Production TLS terminator
@@ -305,7 +396,7 @@ Lost login responses may leave an unused session that expires normally.
 
 No body. 200 returns the same data shape as login without token renewal.
 401 UNAUTHENTICATED: `Your session has expired. Sign in again.` (also used
-for missing/invalid sessions); clear cookie. 403 FORBIDDEN:
+for missing/invalid sessions); do not clear/set cookies. 403 FORBIDDEN:
 `You do not have access to this portal.` 503 on database unavailability.
 Never turn infrastructure failures into 401 or redirect HTML from API routes.
 
@@ -317,6 +408,12 @@ presented token, delete that session if present, commit, clear cookie, return
 204; no token must not require a database lookup. Known-format token with a
 database failure returns 503 and does not claim successful revocation. Non-admin
 and inactive sessions may log out. Clear-cookie is not a substitute for deletion.
+
+204 confirms revocation/absence only of the presented token, not that another
+concurrent login session was revoked or that the cookie jar is now empty. A retry
+presents the cookie then current in the browser and may revoke a different session;
+never describe retries as guaranteed revocation of every earlier session. See
+cookie ordering above for the deliberate delayed-deletion limitation.
 
 ### Protected Domain APIs
 
@@ -341,6 +438,15 @@ an allowlisted internal return path in memory or validated query state. Accept
 only known route patterns with UUID identifiers; reject external/protocol-relative
 URLs, backslashes, arbitrary query strings and fragments. Default to /orders.
 
+Safe-return allowlist includes all protected routes in the table, with strict
+36-character hyphenated UUID IDs canonicalized lowercase (all UUID versions).
+Only /orders and /drafts may carry exactly one nonempty cursor parameter, no
+other keys or fragments. Decode query once, validate with Spec 2's browser-safe
+cursor codec (kind must match route, <=1024 base64url characters); rebuild using
+URLSearchParams rather than concatenating untrusted strings. Reject duplicate
+keys, malformed escapes, encoded path separators and external URLs. Invalid
+return targets fall back to /orders, not an arbitrary caller-provided fallback.
+
 Login uses a main landmark, h1 `Sign in`, visible email/password labels,
 autocomplete=username/current-password, type=email/password, required convention,
 and keyboard submit. Disable repeated submit while pending; announce `Signing
@@ -348,8 +454,9 @@ in...`. Client validation focuses the first invalid field and uses aria-invalid
 and aria-describedby. Focus email on initial login; operational/credential errors
 focus a persistent error summary with role=alert and tabindex=-1. Preserve email;
 clear password after completed failed login, but not before a result is known.
-Do not persist passwords. On success clear password, navigate with replacement,
-and focus the destination h1. Rate-limit feedback gives retry guidance and disables
+Do not persist passwords. On success clear password, verify current-session as
+specified above, then navigate with replacement and focus the destination h1.
+Rate-limit feedback gives retry guidance and disables
 submit until Retry-After elapses; backend remains authoritative.
 
 Protected page route changes focus the new h1; use semantic navigation with
@@ -377,12 +484,88 @@ reload may restore the still-valid cookie session; explain this on the failure
 screen. Never claim that clearing React state revoked a server session.
 
 Use BroadcastChannel with non-sensitive messages only: logout-started hides
-protected content and clears unsaved state in sibling tabs; logout-confirmed
-sets anonymous state. A received login/session-change signal triggers a session
-check, not trust in the message. On visibility returning to visible, recheck the
+protected content and destroys unsaved state in sibling tabs; logout-confirmed
+announces completion of that presented-token request, not global anonymous state.
+After received logout-started/logout-confirmed or login/session-change, freshly
+check current-session while content remains hidden; only the result establishes
+current identity. A sibling may find a concurrent valid login and resume with
+fresh state (never restored destroyed memory). A tab with its own signingOut or
+unconfirmedLogout intent remains hidden despite verification success until that
+intent is resolved and the user explicitly signs in/rechecks; signals never
+automatically reopen it. On visibility returning to visible, recheck the
 session and temporarily hide protected content until resolved. API authorization
 remains the security boundary even if a tab misses a message. No guarantee that
 already displayed data can be erased from an offline/suspended browser.
+
+### Shared Auth Lifecycle and Invalidation
+
+AuthProvider exports `{accountId, authGeneration, phase}` and synchronous lifecycle
+subscriptions. authGeneration is a tab-local monotonically increasing integer,
+starting at 0; increment before initial verification, every visibility/session
+verification, first deduplicated protected UNAUTHENTICATED/FORBIDDEN transition, login attempt,
+and explicit/received logout. Requests capture generation and account at dispatch;
+only matching authenticated bindings may commit any data/navigation/focus.
+The check/login result itself must match its initiating generation. Old 401/403
+callbacks cannot invalidate a newer verified generation. Concurrent failures in
+one generation trigger exactly one transition. Reads are aborted at invalidation.
+
+Failed credential login remains on login/recovery with retained same-account
+snapshot and no domain resume; a failed attempt is not a successful account
+change. Initial anonymous 401 retains only a validated desired route. A deliberate
+login while already authenticated first suspends content; wrong credentials do
+not revoke its server session or destroy private memory. Explicit Retry session
+verification can restore that session without a credential retry.
+
+Events are `suspend(reason)`, `resume(accountId,generation,reason)` and `destroy(reason)`.
+Suspend synchronously hides protected DOM without destroying parent-owned editor,
+list navigation, or detail visit state. All nondestructive visibility, sessionChange
+and deliberate login suspensions retain verified ready read snapshots privately;
+pending reads retain their exact target/intent
+and restart once on successful same-account resume. It does not refetch completed
+reads. A network/503 verification failure stays hidden/unavailable with explicit
+Retry, retains private state and never logs out. A 401 discards protected read
+snapshots but preserves same-account editor recovery, list context and private
+detail receipt; after this confirmed 401 reauthentication refetches reads.
+Without a confirmed 401, successful same-account verification/login rebinds ready
+snapshots rather than refetching them. Successful same-account checks
+rebind retained state to the new generation, never revive old callbacks.
+
+Destroy synchronously clears all protected snapshots, recovery, navigation maps,
+receipts and pending UI before different-account login mounts content, FORBIDDEN,
+explicit logout or either logout-started/logout-confirmed broadcast. These logout
+signals are destructive even if revocation fails. A login/session-change broadcast only suspends and verifies;
+it carries no identity. Initial check has no retained account. After suspension,
+dispatched mutations become uncertain and reconcile through their original key;
+never restart/resend automatically. Even a late successful mutation callback
+cannot apply across generations. Same-account resume may restart reconciliation
+GETs, but not writes. Cookie authentication on each backend request remains the
+security boundary. Spec 3's dirty/pending guard runs before voluntary route leave
+or logout confirmation, not before involuntary suspension/destruction.
+
+Expose `subscribeAuthLifecycle(listener): () => void` with a discriminated event
+`{type:'suspend'|'destroy',reason,binding}` or
+`{type:'resume',reason,binding:{accountId:string,authGeneration:number}}`.
+Suspend reasons are initialCheck, visibility, sessionChange, unauthenticated,
+login; destroy reasons are accountChanged, forbidden, logout, remoteLogout.
+Resume reason identifies initialCheck, visibility, sessionChange or login.
+`binding` on suspend/destroy is the previous account (nullable) and the new
+generation. Invoke subscribers synchronously before rendering auth transition;
+domain stores above route gates retain or destroy as specified. Repeated checks
+for the same trigger/generation may coalesce. Each received auth signal invalidates
+any earlier check, starts a new generation and dispatches a fresh session GET;
+never reuse a check dispatched before that signal. Explicit retry likewise creates
+a new generation. A post-login verification GET belongs to that login flow and
+must be dispatched after its successful response, never reuse an older check.
+Only protected UNAUTHENTICATED/FORBIDDEN responses enter this lifecycle;
+INVALID_CREDENTIALS and CSRF_REJECTED do not. Auth endpoint failures are handled
+by their initiating login/check/logout flow, not recursively by a global handler.
+
+Router exports `registerLeaveGuard(guard: () => Promise<boolean>): () => void`;
+Spec 3 registers one editor guard, true means leave. Router awaits it for voluntary
+internal navigation/Back/Forward and logout before changing URL or clearing state;
+cancel keeps route/form. Successful save route replacement and confirmed creation
+use one explicit bypass for that transition only. Auth suspension never consults
+it. Logout confirmation and guard share one prompt, not duplicate discard dialogs.
 
 ## Spec 3 Recovery Adapter
 
@@ -442,6 +625,16 @@ call and are never included in React diagnostic state. Backend transaction
 helpers may expose PoolClient to Spec 3 for atomic authorization/domain writes.
 All database exceptions map to sanitized responses; no browser module imports
 backend modules. Tests inject clocks/random generators only at narrow boundaries.
+
+`authorizeAdmin(db: Pick<PoolClient,'query'>, token: string|null): Promise<Actor>`
+uses the same session/account join, database-time expiry and typed errors as
+resolveSession; no response/cookie side effects and no independent pool query.
+requireAdmin parses the cookie through one shared parser, calls this helper and
+maps auth errors without Set-Cookie. Mutation routes first requireAdmin before domain
+validation, then call authorizeAdmin on their transaction client again before
+receipt lookup. Neither check locks actor rows or promises cancellation after
+authorization. Domain routes reuse shared cookie-neutral error mapping for
+transaction auth failures. They never write cookies or send success before commit.
 
 ## Configuration and Setup
 
@@ -503,7 +696,24 @@ Database/API integration tests:
   cannot login/logout/create records; rejected requests have no side effects.
 - Logout is idempotent, including forbidden/inactive sessions; database failure
   returns 503, not false success; no-store headers apply to failures as well.
-- Database roles/anonymous Data API cannot read or mutate private tables.
+- PUBLIC/anon/authenticated and anonymous Data API cannot read or mutate private
+  tables; app_runtime is constrained by the explicit auth/domain grant matrices.
+- As app_runtime on isolated Postgres, account SELECT/FOR UPDATE and CAS
+  password_hash UPDATE succeed; INSERT/DELETE and updates to id/email/role/
+  is_active/created_at/updated_at fail. Rehash during login requires no broader
+  grant. Concurrent operator password replacement/deactivation blocks on the
+  login account lock (and vice versa); recheck prevents stale credential login.
+- Runtime session SELECT/INSERT/DELETE succeed, UPDATE/expiry extension and
+  TRUNCATE fail. Limiter INSERT, SELECT FOR UPDATE, window reset/count UPDATE
+  succeed; key/kind UPDATE, DELETE and TRUNCATE fail. Trusted cleanup deletes
+  expired sessions/old limits; no runtime cleanup/maintenance route exists.
+  Verify no inherited/default grants or role membership bypasses these denials.
+- Every protected endpoint and GET /api/auth/session, including 401/403/503,
+  emits no Set-Cookie; failed login/logout emit none. Only committed login success
+  and successful explicit logout write cookies. Delay an old-token 401/session
+  verification until after a fresh login: response cannot delete/replace its cookie.
+- With separate sessions A/B, logout presenting A deletes only A while concurrent
+  login commits B; B remains valid in SQL regardless of cookie response ordering.
 
 Browser acceptance:
 
@@ -517,8 +727,21 @@ Browser acceptance:
 - Lost create response never triggers automatic replay/new idempotency key;
   Spec 3 integration reconciles it. Failed draft save is not shown as saved.
 - Logout clears unsaved data in notified tabs; failed logout shows unconfirmed
-  state and retry; successful retry revokes server session. Returning a stale
+  state and retry; successful retry revokes only its presented session. Returning a stale
   tab to foreground rechecks session before showing protected content.
+- Delay logout's deletion until after a concurrent login Set-Cookie, then reverse
+  response order in another test. Assert the documented browser-cookie outcomes,
+  not global logout: deletion can remove the newer cookie, or later login can
+  establish a valid session. Generation/abort guards must not be credited with
+  cancelling Set-Cookie. Login/received signals verify the actual current session
+  before displaying content; differing verified account destroys prior memory.
+- Across visibility, sessionChange and deliberate login suspensions, ready list/
+  detail snapshots remain hidden and rebind on verified same-account resume with
+  no extra domain GET; pending reads restart exactly once. Network failure retains
+  hidden state; confirmed 401 discards customer snapshots and requires refetch
+  after auth. Logout signals destroy memory before fresh verification; a valid
+  concurrent session starts fresh, never restores destroyed work or reopens a
+  tab's unresolved logout intent. Test out-of-order checks/signals as well.
 - Keyboard-only navigation, screen-reader status/error announcements, visible
   focus, 200% zoom, and layouts at 360/768/1280/1440px without horizontal overflow.
 - Production HTTPS smoke test confirms Secure/__Host cookie, origin checks,
@@ -543,9 +766,9 @@ Browser acceptance:
    Own Spec 1 web modules. Verify accessible states and no protected-content flash.
 7. Integrate domain pages through agreed Actor/error/recovery contracts. Specs
    2-4 own domain modules, draft contracts and domain tests; do not overwrite
-   their files. Block draft acceptance until cross-spec ownership is settled.
+   their files. Use the ownership and acceptance matrix below.
 8. Add browser acceptance coverage and operator/setup documentation; align
-   AGENTS.md/DESIGN.md mock identity references with approved real auth. Run
+   AGENTS.md/DESIGN.md in line with approved real auth. Run
    established scripts and report results and any deployment-only gaps.
 
 Each task depends on preceding shared contracts; domain teams may develop
@@ -562,6 +785,9 @@ behavior. No task authorizes provisioning, deployment, commits or shared-DB edit
   a separate operational error. UTC ISO timestamps; opaque UUID IDs.
 - Auth endpoints: POST /api/auth/login, GET /api/auth/session,
   POST /api/auth/logout. SessionData/Actor shapes are defined above.
+- Protected/current-session responses never set/delete cookies. Login success
+  replaces, explicit logout success deletes; logout revokes its presented token
+  only. Concurrent auth cookie response ordering is not controlled by UI generations.
 - Same-origin credentials, JSON plus X-CSRF-Protection: 1 on mutations, exact
   Origin validation. Never use browser database credentials or frontend guards
   as authorization. No automatic mutation retry.
@@ -571,10 +797,35 @@ behavior. No task authorizes provisioning, deployment, commits or shared-DB edit
   validation and database workflows; coordinate shared files before changes.
 - Eight-hour absolute expiry. Recovery is same-account, memory-only, no automatic
   replay. Spec 3 owns payload/key/version and uncertain-submission reconciliation.
-- Persisted manual drafts are approved but domain endpoint/UI allocation remains
-  unresolved across Specs 2-4. Saved drafts survive logout; unsaved changes do not.
-- Decimal-string money is proposed pending Spec 3 agreement; do not silently
-  establish currency, precision, range or database representation here.
+- Spec 2 owns draft listing; Spec 3 owns editor and draft lifecycle; Spec 4 owns
+  detail. Saved drafts survive logout; unsaved changes do not.
+- Spec 3 money is MYR, integer sen in SQL, fixed-scale decimal response strings.
+
+## Shared Ownership and Integrated Acceptance
+
+| Concept | Authoritative owner | Consumers |
+| --- | --- | --- |
+| Auth generation, lifecycle, cookies, Actor, API transport/errors, routes/guards | Spec 1 | Specs 2-4 |
+| Cursor codec, account-bound list-return map, Page, KL date formatter | Spec 2 | Specs 1, 3, 4 |
+| Money, enums, technicians, domain DTOs/schema, validation, versions/receipts | Spec 3 | Specs 2, 4 |
+| Detail DTO alias, creation handoff/visit, detail GET and return adapter | Spec 4 | Specs 2, 3 |
+
+| Integrated journey | Required evidence during implementation |
+| --- | --- |
+| Login -> older orders -> detail -> return | Exact cursor/UUID ordering, account-bound focus/scroll restore and fresh query |
+| Create -> confirmed receipt -> independent detail | One committed order, matching ID/number/time banner; refresh removes banner |
+| Save -> drafts -> resume -> submit | Incomplete values preserved, latest version loaded, atomic order/link/receipt, draft excluded |
+| Nondestructive visibility/sessionChange/login check | Hidden ready snapshots/edits/visit retained; same-account rebind, interrupted GET restarts once, no write resend |
+| Expiry during dispatched mutation | Same key/body retained, same-account reconciliation, no duplicate; changed account destroys memory |
+| Network outage and failed logout | Outage never implies logout; logout remains hidden/destructive with explicit revocation retry |
+| Runtime SQL privilege boundary | Narrow technician lock function succeeds; general technician writes and anonymous access fail |
+| Auth SQL privileges | Exact account rehash/lock, session and limiter operations succeed; forbidden column/maintenance writes fail |
+| Delayed cookie responses | Old protected/session 401 has no Set-Cookie; concurrent login/logout obey presented-token scope and honest response-order limits |
+| Conflicts and limits | Every Spec 3 discriminator has safe actions; escaped-Unicode body and max-version deletion tested |
+
+All four specs are approved implementation-ready designs, not implemented
+features. Deployment origin/proxy/TLS/pool settings and actual dependency versions
+remain environment configuration, not unresolved product/interface decisions.
 
 ## Security Review Outcome
 
@@ -583,6 +834,7 @@ session fixation, token leakage, rate-limit races, proxy spoofing, revocation
 races, unsafe redirects, infrastructure failures and cross-account draft leaks.
 Residual limitations include weak eight-character passwords without MFA,
 targeted email throttling, distributed/IPv6 attacks, no retroactive cancellation
-of authorized requests, indefinite saved-draft retention, and best-effort clearing
-of already displayed data in other tabs. These are documented limitations, not
+of authorized requests, indefinite saved-draft retention, browser cookie response
+ordering during concurrent auth (no global logout guarantee), and best-effort
+clearing of already displayed data in other tabs. These are documented limitations, not
 claims that planned controls have been implemented or tested.
