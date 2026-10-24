@@ -811,27 +811,105 @@ caption {
   min-height: 100vh;
   display: grid;
   place-items: center;
-  padding: 24px;
-  background: radial-gradient(ellipse at 50% 20%, var(--primary-subtle) 0%, transparent 60%), var(--canvas);
+  padding: 24px 16px;
+  background: radial-gradient(ellipse at 50% 15%, var(--primary-subtle) 0%, transparent 65%), var(--canvas);
+}
+
+.login-container {
+  width: 100%;
+  max-width: 460px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.login-brand-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px;
 }
 
 .login-card {
   width: 100%;
-  max-width: 420px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 18px;
-  padding: 36px;
+  border-radius: 20px;
+  padding: 32px;
   box-shadow: var(--shadow-card);
+  backdrop-filter: blur(8px);
+}
+
+.login-card-header h1 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
 .login-card form {
   display: grid;
-  gap: 18px;
+  gap: 14px;
 }
 
-.login-card h1 {
-  margin-bottom: 8px;
+.field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field-group label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.field-group input {
+  height: 42px;
+  padding: 0 14px;
+  font-size: 14px;
+  border-radius: 10px;
+}
+
+.login-assessment-box {
+  margin-top: 20px;
+  padding: 16px;
+  background: var(--canvas);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.login-roles-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.login-role-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.login-role-item.active {
+  border-color: rgba(56, 189, 248, 0.4);
+  background: var(--primary-subtle);
+}
+
+.login-role-item .role-icon {
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.login-footer {
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 0 12px;
 }
 
 /* Responsive Overrides */
