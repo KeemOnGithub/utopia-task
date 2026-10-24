@@ -1,0 +1,12 @@
+import {beforeEach,expect,it,vi} from 'vitest';
+const fake=vi.hoisted(()=>({current:true,listeners:new Set<(event:{type:string})=>void>(),navigate:vi.fn()}));
+vi.mock('../auth',()=>({getAuthBinding:()=>({accountId:'a',authGeneration:1}),isCurrentAuthBinding:()=>fake.current,subscribeAuthLifecycle:(listener:(event:{type:string})=>void)=>{fake.listeners.add(listener);return()=>fake.listeners.delete(listener);}}));
+vi.mock('../navigation',()=>({guardedNavigate:fake.navigate}));
+import {rememberListReturn,resolveListReturn,clearListNavigation,openOrders,openDrafts,cursorHistories,type OrderListReturn} from './navigation';
+const binding={accountId:'a',authGeneration:1};
+const context:OrderListReturn={pathname:'/orders',cursor:null,originatingItemId:'30000000-0000-4000-8000-000000000001',scrollY:123};
+beforeEach(()=>{clearListNavigation();fake.current=true;fake.navigate.mockClear();});
+it('keeps context in account-bound memory and returns only an opaque UUID',()=>{const key=rememberListReturn(binding,context);expect(key).toMatch(/^[0-9a-f-]{36}$/);expect(resolveListReturn(binding,key)).toEqual(context);expect(resolveListReturn({...binding,authGeneration:2},key)).toEqual(context);expect(resolveListReturn({accountId:'b',authGeneration:2},key)).toBeNull();expect(resolveListReturn(binding,context)).toBeNull();});
+it('rejects invalid cursor kind, item, scroll and stale registration',()=>{for(const value of [{...context,cursor:'bad'},{...context,scrollY:NaN},{...context,scrollY:-1},{...context,originatingItemId:'not-an-id'}])expect(rememberListReturn(binding,value)).toBe('');fake.current=false;expect(rememberListReturn(binding,context)).toBe('');});
+it('destroys navigation synchronously on auth destruction, but retains on suspension',()=>{const key=rememberListReturn(binding,context);cursorHistories.set('a:orders:',[null]);for(const listener of fake.listeners)listener({type:'suspend'});expect(resolveListReturn(binding,key)).toEqual(context);for(const listener of fake.listeners)listener({type:'destroy'});expect(resolveListReturn(binding,key)).toBeNull();expect(cursorHistories.size).toBe(0);});
+it('navigates with opaque state only for fresh orders and drafts',()=>{openOrders({kind:'newestOrders'});expect(fake.navigate.mock.calls[0]?.[0]).toBe('/orders');const key=fake.navigate.mock.calls[0]?.[1].state;expect(typeof key).toBe('string');expect(resolveListReturn(binding,key)).toMatchObject({pathname:'/orders',cursor:null});openDrafts({kind:'newestDrafts'});expect(fake.navigate.mock.calls[1]?.[0]).toBe('/drafts');});

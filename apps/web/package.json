@@ -1,0 +1,1 @@
+{"name":"@sejuk/web","private":true,"type":"module","scripts":{"dev":"vite --host localhost","build":"vite build"}}

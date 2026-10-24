@@ -1,0 +1,12 @@
+import { apiRequest } from './client.js';
+import type { SelectableTechnician, CreateOrderRequest, OrderCreatedResult } from '@sejuk/contracts/service-orders';
+import type { DraftRecord,DraftWriteRequest,DraftUpdateRequest,DraftDeleteRequest,SubmitDraftRequest,DraftSavedResult,DraftDeletedResult,OperationCheck } from '@sejuk/contracts/drafts';
+export const fetchTechnicians=(signal:AbortSignal)=>apiRequest<{technicians:SelectableTechnician[]}>('/technicians',{signal});
+export const fetchDraft=(id:string,signal:AbortSignal)=>apiRequest<DraftRecord>(`/drafts/${id}`,{signal});
+export const checkOperation=(key:string,signal:AbortSignal)=>apiRequest<OperationCheck>(`/order-editor-operations/${key}`,{signal});
+const write=<T>(path:string,method:string,body:unknown,key:string)=>apiRequest<T>(path,{method,body:JSON.stringify(body),headers:{'Idempotency-Key':key}});
+export const createDraft=(body:DraftWriteRequest,key:string)=>write<DraftSavedResult>('/drafts','POST',body,key);
+export const saveDraft=(id:string,body:DraftUpdateRequest,key:string)=>write<DraftSavedResult>(`/drafts/${id}`,'PUT',body,key);
+export const deleteDraft=(id:string,body:DraftDeleteRequest,key:string)=>write<DraftDeletedResult>(`/drafts/${id}`,'DELETE',body,key);
+export const createOrder=(body:CreateOrderRequest,key:string)=>write<OrderCreatedResult>('/service-orders','POST',body,key);
+export const submitDraft=(id:string,body:SubmitDraftRequest,key:string)=>write<OrderCreatedResult>(`/drafts/${id}/submit`,'POST',body,key);

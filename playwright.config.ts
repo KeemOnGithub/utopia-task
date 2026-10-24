@@ -1,0 +1,2 @@
+import {defineConfig,devices} from '@playwright/test';
+export default defineConfig({testDir:'./tests/e2e',fullyParallel:false,workers:1,timeout:45000,use:{baseURL:'http://localhost:5178',trace:'retain-on-failure'},webServer:{command:`"${process.execPath}" --import tsx tests/support/e2e-server.ts`,url:'http://localhost:5178',reuseExistingServer:false,timeout:120000},projects:[{name:'desktop',use:{...devices['Desktop Chrome']}},{name:'mobile',use:{...devices['iPhone 13'],defaultBrowserType:'chromium'}}]});

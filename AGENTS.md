@@ -67,12 +67,24 @@ Auth. Dependency versions and deployment provider remain execution choices.
 
 ## Setup and Commands
 
-The application has not been scaffolded yet, so no installation,
-development, build, or test commands are established.
+Use Node 24 LTS and npm workspaces with the single root package-lock.json.
+Verified commands: `npm ci`, `npm run typecheck`, `npm run lint`,
+`npm run test:unit`, `npm run test:integration`, `npm run test:e2e`,
+and `npm run build`. `npx playwright install chromium` installs browser tooling.
+`npm run dev` starts the Vite proxy and Fastify backend after `.env` setup.
+`npm start` runs the native bundled `build/server.mjs`; production also serves
+`apps/web/dist`. Do not run the pre-existing `apps/api/dist` artifacts.
+`npm run db:migrate` uses only MIGRATION_DATABASE_URL and an ordered checksum
+ledger. `npm run account -- <command>` uses only PROVISION_DATABASE_URL with
+hidden password prompts. See README.md for roles, setup and deployment gates.
 
-Once tooling exists, update this section with verified commands from
-the project's configuration. Use the existing package manager and
-lockfile; do not introduce competing lockfiles.
+Integration/browser tests always create disposable local UTF-8 PostgreSQL
+clusters via embedded-postgres, never reset environment-supplied databases.
+Tests use a NOSUPERUSER migration owner and the actual restricted app_runtime
+role. Browser tests use ports 5178/3018; development uses 5173/3000.
+Main owns shared configuration, composition and migration ordering. Domain
+implementations live in auth, listings, order-editor and order-detail modules.
+Shared browser contracts are in packages/contracts; no browser server imports.
 
 ## Business Workflow
 
