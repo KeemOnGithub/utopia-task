@@ -879,32 +879,6 @@ caption {
   border-radius: 14px;
 }
 
-.login-roles-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.login-role-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-}
-
-.login-role-item.active {
-  border-color: rgba(56, 189, 248, 0.4);
-  background: var(--primary-subtle);
-}
-
-.login-role-item .role-icon {
-  font-size: 16px;
-  line-height: 1.2;
-}
-
 .login-footer {
   text-align: center;
   font-size: 11px;

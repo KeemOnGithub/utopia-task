@@ -192,59 +192,9 @@ export function LoginPage() {
             </div>
           )}
 
-          {/* Assessment Overview & Demo Helper */}
+          {/* Demo Credentials Helper */}
           <div className="login-assessment-box">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-              <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--primary)' }}>
-                Assessment Roles &amp; Scope
-              </span>
-              <span className="badge" style={{ fontSize: 10, padding: '2px 8px', background: 'var(--primary-subtle)', color: 'var(--primary)' }}>
-                Module 1 Scope
-              </span>
-            </div>
-
-            <div className="login-roles-list">
-              <div className="login-role-item active">
-                <div className="role-icon">🛡️</div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-bright)' }}>Administrator</span>
-                    <span style={{ fontSize: 10, color: 'var(--success)', fontWeight: 600 }}>● Active Portal</span>
-                  </div>
-                  <span style={{ fontSize: 11, color: 'var(--text-subtle)', display: 'block', marginTop: 2 }}>
-                    Creates service orders, assigns field technicians, and manages drafts.
-                  </span>
-                </div>
-              </div>
-
-              <div className="login-role-item">
-                <div className="role-icon">🔧</div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-bright)' }}>Technician</span>
-                    <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>Module 2</span>
-                  </div>
-                  <span style={{ fontSize: 11, color: 'var(--text-subtle)', display: 'block', marginTop: 2 }}>
-                    Mobile field service completion and receipts (Ali, John, Bala, Yusoff).
-                  </span>
-                </div>
-              </div>
-
-              <div className="login-role-item">
-                <div className="role-icon">📊</div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-bright)' }}>Manager</span>
-                    <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>AI &amp; Review</span>
-                  </div>
-                  <span style={{ fontSize: 11, color: 'var(--text-subtle)', display: 'block', marginTop: 2 }}>
-                    Operational performance review and query window.
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
                 <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                   Demo Admin: <code style={{ color: 'var(--text-bright)' }}>admin@example.test</code>
@@ -270,6 +220,11 @@ export function LoginPage() {
                 >
                   Auto-fill Manager
                 </button>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                  Use the credentials above to use the portal.
+                </div>
               </div>
             </div>
           </div>
