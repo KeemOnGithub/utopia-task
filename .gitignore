@@ -7,3 +7,6 @@ build/
 playwright-report/
 test-results/
 *.pem
+
+.vercel
+.env*
