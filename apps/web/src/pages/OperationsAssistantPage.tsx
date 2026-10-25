@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, type FormEvent } from 'react';
 import { GuardedLink } from '../navigation.js';
 import { useConversation } from '../operations-assistant/useConversation.js';
+import { FormattedText } from '../operations-assistant/FormattedText.js';
 import type {
   AssistantResponse,
   OperationalOrder,
@@ -452,9 +453,10 @@ export function OperationsAssistantPage() {
                         {ex.response.summarySource}
                       </span>
                     </div>
-                    <p style={{ margin: 0, fontSize: 14, lineHeight: 1.5 }}>
-                      {ex.response.narrative}
-                    </p>
+                    <FormattedText
+                      text={ex.response.narrative}
+                      style={{ margin: 0, fontSize: 14, lineHeight: 1.5 }}
+                    />
                   </div>
 
                   {/* Authoritative Structured Evidence */}
@@ -464,9 +466,10 @@ export function OperationsAssistantPage() {
 
               {ex.response.kind === 'clarification' && (
                 <div style={{ padding: '12px 16px', background: 'var(--surface-muted)', borderRadius: 8 }}>
-                  <p style={{ fontWeight: 600, margin: '0 0 10px 0' }}>
-                    {ex.response.message}
-                  </p>
+                  <FormattedText
+                    text={ex.response.message}
+                    style={{ fontWeight: 600, margin: '0 0 10px 0' }}
+                  />
                   {ex.response.choices && ex.response.choices.length > 0 && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                       {ex.response.choices.map((c, ci) => (
@@ -490,9 +493,10 @@ export function OperationsAssistantPage() {
                   <p style={{ fontWeight: 600, color: 'var(--danger)', margin: '0 0 6px 0' }}>
                     Query Not Supported
                   </p>
-                  <p style={{ margin: '0 0 10px 0', fontSize: 13 }}>
-                    {ex.response.message}
-                  </p>
+                  <FormattedText
+                    text={ex.response.message}
+                    style={{ margin: '0 0 10px 0', fontSize: 13 }}
+                  />
                   {ex.response.suggestions && ex.response.suggestions.length > 0 && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                       {ex.response.suggestions.map((s, si) => (

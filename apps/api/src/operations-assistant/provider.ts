@@ -102,6 +102,27 @@ export function generateDeterministicSummary(
   }
 }
 
+// Extract and sanitize JSON string from AI model responses, removing code fences and thinking tags
+export function extractJsonText(raw: string): string {
+  // Strip any reasoning / thinking tags if present (e.g. <think>...</think>)
+  let text = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+
+  // Strip markdown code fences (```json ... ``` or ``` ... ```)
+  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (fenceMatch) {
+    text = fenceMatch[1]!.trim();
+  } else {
+    // If no complete code fence is found, locate the outermost JSON object braces
+    const firstBrace = text.indexOf('{');
+    const lastBrace = text.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+      text = text.slice(firstBrace, lastBrace + 1).trim();
+    }
+  }
+
+  return text;
+}
+
 // Convert authoritative evidence into minimal privacy-safe provider DTO
 export function buildProviderRetrievalDto(
   plan: QueryPlan,
@@ -264,9 +285,10 @@ export class OpenAiChatCompletionsProvider implements AiProvider {
         throw new AppError(503, 'SERVICE_UNAVAILABLE', 'AI provider returned an empty response.');
       }
 
+      const jsonText = extractJsonText(content);
       let parsed: any;
       try {
-        parsed = JSON.parse(content);
+        parsed = JSON.parse(jsonText);
       } catch {
         throw new AppError(503, 'SERVICE_UNAVAILABLE', 'AI provider returned invalid JSON.');
       }
@@ -361,7 +383,13 @@ Rules:
       }
 
       const body: any = await res.json();
-      const narrative = body?.choices?.[0]?.message?.content?.trim();
+      const rawNarrative = body?.choices?.[0]?.message?.content?.trim();
+      if (!rawNarrative) {
+        return { narrative: '', source: 'deterministic' };
+      }
+
+      // Strip reasoning/thinking tags if present
+      const narrative = rawNarrative.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
       if (!narrative) {
         return { narrative: '', source: 'deterministic' };
       }

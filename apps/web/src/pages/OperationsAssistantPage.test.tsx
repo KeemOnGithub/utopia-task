@@ -169,5 +169,61 @@ describe('OperationsAssistantPage', () => {
 
     expect(screen.getByRole('button', { name: 'View active orders' })).toBeTruthy();
   });
+
+  it('formats bold text with asterisks properly as strong tags in AI narrative', async () => {
+    const mockResponse: AssistantResponse = {
+      kind: 'answer',
+      operation: 'countOrders',
+      query: {
+        operation: 'countOrders',
+        filters: {
+          technicianId: null,
+          serviceType: null,
+          dateBasis: 'createdAt',
+          startDate: null,
+          endDate: null,
+          customerName: null,
+          serviceText: null
+        },
+        orderNumber: null,
+        rankingMetric: null
+      },
+      resolvedFilters: {
+        technician: null,
+        serviceType: null,
+        dateBasis: 'createdAt',
+        intervalLabel: 'All recorded history',
+        startDate: null,
+        endDate: null,
+        startUtc: null,
+        endUtc: null,
+        customerName: null,
+        serviceText: null
+      },
+      retrievedAt: '2026-10-24T12:00:00.000Z',
+      narrative: 'Based on the retrieved data, **1 service order** exists in the system.',
+      summarySource: 'ai',
+      evidence: {
+        kind: 'countOrders',
+        data: { matchingCount: '1' }
+      }
+    };
+
+    vi.mocked(apiRequest).mockResolvedValueOnce(mockResponse);
+
+    const { container } = renderPage();
+    const input = screen.getByLabelText('Ask a question about service orders') as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: 'How many service orders?' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    await waitFor(() => {
+      const strong = container.querySelector('article strong');
+      expect(strong).not.toBeNull();
+      expect(strong?.textContent).toBe('1 service order');
+    });
+
+    expect(container.textContent).toContain('1 service order');
+    expect(container.textContent).not.toContain('**');
+  });
 });
 
