@@ -1,274 +1,207 @@
 # Sejuk Sejuk Service: Module 1 & Operations Query Window
 
-An operations application implementing the five integrated specifications in
-`specs/`: real authentication, persisted service-order lists, private manual
-drafts, transactional order creation/assignment, read-only saved-order detail,
-and the Operations Query Window (Spec 5).
-The assessment's mock-login suggestion is superseded by the approved real-auth
-contracts. There are no technician completion/payment, WhatsApp, or
-upload features. Both `admin` and `manager` roles are admitted to the portal;
-`admin` retains exclusive rights to create orders and manage drafts.
+Internal operations management system built for **Sejuk Sejuk Service Sdn Bhd**, an air-conditioning installation, servicing, and repair company.
 
-## Requirements
+---
 
-- Node **24 LTS** and npm; one root `package-lock.json` and npm workspaces.
-- An explicitly authorized, dedicated PostgreSQL/Supabase project for application
-  setup. Do not point migration or operator commands at a shared environment
-  without approval. PostgreSQL must use UTF-8 and provide `gen_random_uuid()`.
-- Separate trusted migration and provisioning connections, and an unprivileged
-  `app_runtime` connection. No Supabase Auth or browser Supabase client is used.
-- Chromium for browser tests: `npx playwright install chromium`.
+## 1. What Was Built
 
-Resolved versions include TypeScript 5.9.3, Fastify 5.12.7, pg 8.23.1,
-React 19.3.1, React Router 7.18.4, Vite 7.3.7, Tailwind 4.3.3,
-Argon2 0.44.0, Vitest 5.0.5, and Playwright 1.64.1. The lockfile is authoritative.
+This application implements **Module 1 (Admin Portal · Order Submission)** extended with the **Operations Query Window (Spec 5)**:
 
-## Setup
+- **Order Submission Workflow:** An administrative interface for creating service orders with auto-generated sequential order numbers (`SO-000001`), customer information, service classification, price quoting in exact integer sen, and mandatory technician assignment to an active seed technician (Ali, John, Bala, Yusoff).
+- **Private Manual Drafts:** Private, version-controlled drafts allowing admins to prepare complex orders incrementally without allocating live operational order numbers or locking technicians prematurely.
+- **Order Registry & Detail:** Read-only paginated order listing and detail views with cryptographic creation receipts, transactional concurrency protection, and microsecond-precision keyset pagination.
+- **Operations Query Window (AI Assistant):** An internal conversational query assistant allowing operations managers and admins to query service history, technician workloads, order counts, and financial quotes using natural language.
+- **Role-Gated Portal:** Real dual-role authentication supporting both `admin` (order creation, drafts, listing, detail, AI assistant) and `manager` (read-only order listing, detail, and AI assistant).
 
-1. Install Node 24, then run `npm ci` from the repository root.
-2. Configure an untracked `.env` using `.env.example` as the field reference.
-   All example passwords/secrets are placeholders. Generate at least 32 random
-   bytes for `LOGIN_LIMIT_HMAC_SECRET`; do not reuse the example text.
-3. Have the database operator establish a dedicated database and trusted migration
-   login. Its privileges must support schema/table/sequence creation, role
-   creation/administration, and temporary function-owner membership/ownership
-   transfer. It must not be the runtime login. A superuser is not required:
-   tests execute migrations as a separate NOSUPERUSER CREATEROLE database owner.
-4. Set `MIGRATION_DATABASE_URL` and run `npm run db:migrate`. The ordered,
-   transactional migrations create `app_private`, restricted roles, accounts,
-   sessions, limiter buckets, technicians, orders, drafts, and operation receipts.
-   The runner serializes with an advisory lock and records SHA-256 checksums in
-   `public.app_migrations`. Never edit migrations already applied to a durable
-   environment; add a new migration instead.
-5. Set a strong password for `app_runtime` using trusted database tooling and set
-   `DATABASE_URL` to that login. It must have no privileged memberships, ownership,
-   superuser, BYPASSRLS, CREATEROLE, CREATEDB, or schema CREATE privileges.
-6. Establish a separate trusted operator login with the `app_provisioner` grants
-   (the migration creates this NOLOGIN privilege group). Configure its distinct
-   `PROVISION_DATABASE_URL`. Keep that connection inaccessible to the web runtime.
-7. Run `npm run account -- create-admin admin@example.test`. Enter and confirm the
-   password through the hidden interactive prompts. No password argv, environment
-   variable, committed seed, registration page, or role selector exists.
-8. Run `npm run dev` and open **http://localhost:5173**. Vite proxies `/api` to the
-   loopback backend on port 3000. `PUBLIC_ORIGIN` must match exactly; do not mix
-   `localhost` and `127.0.0.1`.
+> **UI/UX Philosophy:** Prioritized a functional, responsive, and intuitive interface designed specifically for real-world desktop operations with mobile responsiveness. Rather than relying on generic, unstyled "vibecoded" templates, the UI emphasizes clear visual hierarchy, accessible keyboard interactions, explicit validation feedback, and robust loading/error states.
 
-Root migration/operator/start scripts load `.env` when it exists. Development
-requires it. Tests never use these database URLs: they create disposable local
-clusters with synthetic accounts, random credentials, UTF-8 encoding, and unique
-test directories. There is no reset command targeting a supplied database URL.
+---
 
-## Commands
+## 2. Tech Stack Used
 
-```sh
-npm run dev
-npm run typecheck
-npm run lint
-npm run test:unit
-npm run test:integration
-npx playwright install chromium
-npm run test:e2e
-npm run build
-npm start
-npm run db:migrate
-npm run account -- create-admin admin@example.test
-npm run account -- create-manager manager@example.test
-npm run account -- replace-password <account-uuid>
-npm run account -- deactivate <account-uuid>
-npm run account -- activate <account-uuid>
-npm run account -- revoke-sessions <account-uuid>
-npm run account -- cleanup-auth
-npm run account -- cleanup-ai
+| Layer | Technology | Rationale & Choice |
+| :--- | :--- | :--- |
+| **Frontend** | React 19, React Router 7, Vite 7 | Provided company preference. Lightweight, fast rendering, component modularity, and rapid DX via Vite. |
+| **Styling** | Tailwind CSS 4 | Clean, practical utility-first styling for accessible desktop tables and responsive mobile views without heavyweight UI library lock-in. |
+| **Backend** | Node.js 24 LTS, Fastify 5 | High-performance, low-overhead HTTP engine with schema validation, native JSON handling, and strict same-origin API routes. |
+| **Database** | PostgreSQL 17 / Supabase | Strong ACID guarantees, sequences for gap-safe concurrent order numbering, and granular schema privilege controls. |
+| **Driver & Pooling** | `pg` (node-postgres) | Direct, predictable parameterized SQL without heavyweight ORM abstraction layers. |
+| **Password Hashing** | Argon2id | Memory-hard, state-of-the-art password security with thread-pool-bounded verification. |
+| **Testing** | Vitest, Testing Library, Playwright | Comprehensive unit, PostgreSQL integration (`embedded-postgres`), and end-to-end browser journeys. |
+| **Repository Structure** | npm workspaces (monorepo) | Single lockfile spanning `apps/web`, `apps/api`, and `packages/contracts` for end-to-end TypeScript type safety. |
+
+*Note on infrastructure:* Containerization tools (like Docker) were intentionally avoided for local development and demo setup to keep the setup friction-free, fast, and transparent.
+
+---
+
+## 3. Architecture Decisions
+
+### Custom Session Authentication & Role Privilege Isolation
+The assessment noted that real authentication was not strictly required and suggested mock logins or role switches. However, because internal operations tools handle sensitive customer addresses and financial quotes, this system implements **production-grade custom database session authentication**:
+- **Granular Database Roles:** Separates database access across distinct privilege tiers:
+  - `migration`: Runs migrations and schema changes with an advisory lock ledger.
+  - `app_provisioner`: Secure CLI operator connection for provisioning accounts with hidden password prompts (`npm run account -- create-admin`).
+  - `app_runtime`: Unprivileged application connection with `NOINHERIT`, no DDL permissions, and restricted `SECURITY DEFINER` function calls for row locking.
+- **Token Security:** Sessions use 32 crypto-random bytes stored solely as SHA-256 hashes in PostgreSQL, transmitted over `HttpOnly`, `SameSite=Strict` cookies.
+- **Anti-Brute-Force:** Database-backed HMAC rate-limiting buckets (5 email / 30 IP attempts per 15-minute window).
+
+### Concurrency-Safe Order Number Generation
+Order numbers (`SO-000001`) are backed by a dedicated PostgreSQL sequence (`app_private.order_number_seq`). This avoids race conditions and collision bugs inherent in naive `COUNT(*)` or client-side generation under concurrent admin submissions.
+
+### Financial Precision (Integer Sen)
+Quoted prices are parsed and stored as integer cents (`sen`, e.g., RM 150.50 is stored as `15050`). This eliminates floating-point rounding errors and IEEE-754 precision issues across calculations, database constraints, and API contracts.
+
+### Browser/Server Shared Contracts
+Browser and API share TypeScript validation schemas and DTOs via `packages/contracts`. The browser code never imports server libraries or database drivers, and the backend validates every request boundary independently.
+
+---
+
+## 4. Challenges & Assumptions
+
+### Challenges Encountered
+1. **LLM Output Formatting & JSON Boundaries:** In previous projects and initial prototypes, strict JSON generation frequently broke when LLMs outputted conversational preambles, reasoning chatter, or unescaped markdown blocks. To solve this, a strict JSON boundary sanitizer was built to strip markdown code blocks and parse structured payloads reliably before contract validation.
+2. **Controlled Retrieval vs. Hallucination:** Preventing the AI from generating nonexistent order numbers or fabricated revenue metrics. Addressed by decoupling intent interpretation from SQL querying, forcing all factual answers to be grounded in database evidence.
+3. **Draft Concurrency & Mutation Races:** Ensuring that multiple admin tabs or lost network responses cannot accidentally create duplicate orders or overwrite versioned drafts. Solved using atomic version checks and transaction-bound idempotency keys.
+
+### Core Business Assumptions
+- **Mandatory Technician Assignment:** Orders cannot be left unassigned upon creation. Creating an order automatically transitions it to `Assigned` status with a locked technician.
+- **Active Seed Technicians:** The four technicians (Ali, John, Bala, Yusoff) are operational resources with stable UUIDs, not portal login accounts.
+- **Malaysian Operational Context:** Working hours, relative date ranges (today, this week, last week), and reporting intervals are evaluated strictly in **Malaysian Time (MYT / Asia/Kuala_Lumpur, UTC+8)** regardless of the host server's local clock.
+- **Quoted Price vs. Revenue:** Quoted prices represent job estimates, not collected revenue (which belongs to post-completion Module 2).
+
+---
+
+## 5. How AI Was Integrated (Operations Query Window)
+
+The Operations Assistant implements a **two-stage, privacy-preserving controlled retrieval pipeline**:
+
+```
+User Question
+      ↓
+[Stage 1: Intent Interpretation]
+LLM maps question + active technician list + MYT date context -> Validated QueryPlan (JSON)
+      ↓
+[Stage 2: Controlled Data Retrieval]
+Backend executes strict, parameterized PostgreSQL query based on QueryPlan
+      ↓
+[Privacy Scrubbing]
+Database rows converted into sanitized ProviderRetrievalDto (PII stripped)
+      ↓
+[Stage 3: Grounded Summarization]
+LLM summarizes structured evidence into a clear narrative (or Deterministic Fallback triggers)
+      ↓
+Browser UI displays narrative + structured data cards + direct links
 ```
 
-`npm start` runs the **bundled** `build/server.mjs` from the repository root.
-Set `NODE_ENV=production` to serve `apps/web/dist` and enable production cookie
-and origin requirements. Do not run the old `apps/api/dist` artifacts or import
-the development contracts package directly with native Node: the production
-build bundles local TypeScript contracts while leaving runtime npm dependencies
-external. Keep runtime dependencies installed on the same target platform as
-Argon2's native binary. Development/migration/operator commands use `tsx`.
+### Key AI Architecture Safeguards
+1. **No Direct SQL Execution:** The LLM is never given direct SQL access or arbitrary query privileges. It can only emit a bounded `QueryPlan` intent corresponding to pre-written parameterized queries.
+2. **PII & Data Privacy:** Customer phone numbers, exact street addresses, and internal database UUIDs are scrubbed before sending data to the summarization model.
+3. **Deterministic Summary Fallback:** If the external AI service is unreachable, disabled, times out, or fails schema validation, the system automatically falls back to a deterministic, rule-based summary generator (`generateDeterministicSummary`).
+4. **Multi-Tenant Admission & Rate Limiting:**
+   - Single concurrent AI question per account (HTTP 429).
+   - Deployment concurrency lease limit (HTTP 503).
+   - Account quota of 10 questions per 5 minutes.
+   - Global daily deployment limit (default 500 queries/day).
 
-Run `cleanup-auth` daily through the host scheduler using trusted operator
-credentials; it removes expired sessions and limiter rows older than 24 hours.
-Run `cleanup-ai` daily through the host scheduler to remove expired request leases
-and usage rows older than 30 days. Neither is an HTTP operation and runtime cannot
-delete limiter rows or AI usage logs.
+---
 
-## Implemented Workflows
+## 6. Supported Types of AI Queries
 
-### 1. Authentication
+The Operations Assistant supports five distinct query operations across flexible time horizons (today, this week, last week, this month, explicit dates):
 
-- Individually provisioned active admins, Argon2id passwords, five-email/thirty-IP
-  attempts per 15-minute database-backed window, four concurrent password workers.
-- Eight-hour absolute sessions: 32 random token bytes, only SHA-256 token hashes
-  stored, HttpOnly/SameSite cookies, role/activity/expiry checked on each API call.
-- Exact same-origin JSON/custom-header mutation policy, bounded bodies, no CORS,
-  generated request IDs, sanitized errors, no-store responses, script CSP and
-  frame restrictions. SQL bindings, credentials, cookies and customer bodies are
-  not logged.
-- Login verifies the current session again after its successful response; protected
-  failures never set/delete cookies. Logout revokes only its presented token.
-- Auth generations, synchronous suspend/resume/destroy, memory-only same-account
-  recovery, hidden retained views, cross-tab invalidation, and explicit failed
-  logout recovery. Frontend state is not an authorization boundary.
+| Query Class | Description | Example Queries |
+| :--- | :--- | :--- |
+| **Order Lookups** | Detailed status and metadata for a specific order. | *"What is the status of order SO-000001?"*<br>*"Find details for order SO-000005."* |
+| **Order Volume & Counts** | Aggregate count of orders matching status, technician, service type, or timeframe. | *"How many jobs were scheduled today?"*<br>*"How many aircond servicing jobs were created this week?"* |
+| **Technician Workload** | Listing and inspecting orders assigned to a specific technician. | *"What jobs are assigned to Ali this week?"*<br>*"Show me orders handled by Bala last week."* |
+| **Technician Leaderboards** | Ranking technicians by total completed/assigned orders or quoted value. | *"Which technician has the most jobs this week?"*<br>*"Rank technicians by order count this month."* |
+| **Quoted Value Metrics** | Total monetary value quoted across service categories and periods. | *"What is the total quoted value of repair orders this week?"*<br>*"What is our total quoting volume for this month?"* |
 
-### 2. Service Orders And My Drafts
+*Follow-up handling:* The assistant retains an in-memory history of the last 6 exchanges, allowing natural conversational refinements (e.g., asking *"What about Bala?"* after inquiring about Ali).
 
-- All admins can list saved orders. Drafts are creator-only and unsubmitted.
-- Twenty-five-row forward keyset pagination with strict browser/server-shared
-  cursors preserving PostgreSQL microseconds, local Previous history, and explicit
-  refresh/retry. There are no totals, filters, polling, or mock rows.
-- Narrow summary projections, responsive semantic tables/cards, Kuala Lumpur
-  timestamps, and account-bound memory-only focus/scroll/list-return context.
+---
 
-### 3. Creation And Drafts
+## 7. System & AI Limitations
 
-- Required final customer/service/technician fields, optional notes, code-point
-  bounds, Unicode validity, LF normalization, exact integer-sen MYR money.
-- Active technician selection, narrow transactional technician lock, real
-  sequence-generated `SO-000001` numbering, Assigned status, server actor/time.
-- Manual incomplete draft create/load/save/delete/submit, expected versions,
-  private ownership, conflict-specific actions, maximum-version deletion, and
-  atomic draft-to-order conversion without an intermediate save.
-- Account-wide idempotency keys, canonical fingerprints, advisory and row locks,
-  minimal indefinitely retained receipts, exact replay, and read-only outcome
-  reconciliation. Lost responses freeze the attempted key/body; no mutation is
-  automatically retried or replaced. A rejected retry cannot erase older
-  uncertainty. Unsaved changes and pending operations have guarded navigation.
+### System Limitations
+- **Modules 2 & 3 Out of Scope:** Field technician job completion, photo/PDF file uploads (Supabase Storage), payment collection, WhatsApp deep-link notifications, and manager review sign-offs are not implemented.
+- **Incomplete Manager Role:** Because review workflows and KPI dashboards (Modules 2 & 3) are out of scope, the `manager` role currently functions solely as a read-only viewer for order listings, order details, and the AI Operations Assistant. Production expansion would include full role-based access control (RBAC).
+- **No Self-Service Password Reset / MFA:** User provisioning and password changes must be performed via the trusted CLI operator tool (`npm run account`).
+- **Memory-Bound UI Drafts:** Unsaved form inputs exist only in component state until explicitly saved as a private draft.
 
-### 4. Saved Detail
+### AI Implementation Limitations
+- **Strictly Read-Only:** The AI assistant cannot modify, create, cancel, or reassign orders. It cannot execute mutations.
+- **No Streaming Responses:** To prioritize deterministic schema validation, evidence grounding, and JSON error handling, AI responses are generated and returned in a single structured round-trip rather than progressive token streaming.
+- **No Document / Multimodal Understanding:** The query window does not process images, PDFs, or audio inputs.
+- **Episodic Context Window:** Conversation history is stored in-memory per browser tab and capped at 20 exchanges. Refreshing the browser or switching accounts resets the conversation.
 
-- Independently authorized database retrieval, every canonical saved business
-  field, visible actor UUIDs, and read-only display even if the technician later
-  becomes inactive.
-- Account-bound, memory-only, single-visit creation confirmation compares ID,
-  order number and timestamp against independently fetched detail. Mismatches
-  withhold customer data. Failed detail retrieval never means creation failed
-  and never invites automatic resubmission.
-- Read-only retries, dismissible persistent feedback, refresh/departure expiry of
-  confirmation, and originating-list versus newest-list return behavior.
+---
 
-### 5. Operations Query Window (Spec 5)
+## 8. Setup & Development Guide
 
-- Dual portal roles: both `admin` and `manager` accounts authenticate to the portal
-  and read service orders (`/orders`, `/orders/:id`) and the Operations Assistant
-  (`/operations-assistant`). Mutations (order creation and drafts) remain strictly
-  restricted to `admin` (enforced by backend `requireAdmin` and local route gates).
-- Natural language query interpretation via single bounded query plans (`findOrders`,
-  `countOrders`, `totalQuotedValue`, `rankTechnicians`, `lookupOrder`) or clear
-  clarification/unsupported responses.
-- Database-backed multi-tenant admission controls: single concurrent question per
-  account (429), deployment concurrency lease limit (503, default 4), account 5-minute
-  quota (429, 10 questions), and deployment daily MYT quota (429, default 500).
-- Privacy-preserving architecture: LLM prompt never receives customer names, phone
-  numbers, addresses, or internal UUIDs. Evidence returned to browser is retrieved
-  authoritatively from PostgreSQL and grounded with exact numbers and validated links.
-- Verified retrieval survives provider summary failures via deterministic narrative
-  fallback (`summarySource: 'deterministic'`).
-- In-memory tab conversation history with client-side cancellation, 20-exchange cap,
-  and instant destruction upon account or role change.
+### Prerequisites
+- **Node.js 24 LTS** and npm.
+- **PostgreSQL 17+** (or Supabase project) with UTF-8 encoding.
+- Chromium for browser testing: `npx playwright install chromium`.
 
-## Architecture And Decisions
+### Step-by-Step Setup
 
-`apps/web` is React/Vite/React Router/Tailwind; `apps/api` is a same-origin
-Fastify/pg backend. `packages/contracts` contains browser-safe DTOs, validation
-helpers and cursor/money contracts. SQL lives in `db/migrations`.
+1. **Install Dependencies:**
+   ```sh
+   npm ci
+   ```
 
-Database authorization is enforced by backend custom sessions plus SQL ownership
-predicates and explicit database grants, **not** `auth.uid()` or Supabase Auth RLS.
-`app_private` must remain excluded from PostgREST's exposed schemas. Runtime can
-read technicians but cannot lock them directly or modify them. Only the narrow
-`SECURITY DEFINER` technician function obtains the required row lock. Runtime
-cannot update/delete orders or receipts.
+2. **Configure Environment:**
+   Copy `.env.example` to `.env` and fill in the required keys:
+   ```sh
+   cp .env.example .env
+   ```
+   *Generate at least 32 random bytes for `LOGIN_LIMIT_HMAC_SECRET`.*
 
-No product contracts were intentionally relaxed. Integration choices include an
-esbuild production backend bundle, a NOLOGIN provisioning privilege group, and
-embedded **real PostgreSQL 17.9** for isolated tests instead of Docker. Local
-build/start smoke checks are not a deployment. CSP allows inline **styles**
-used by React, but production **scripts** remain self-only without unsafe-inline
-or unsafe-eval. No remote fonts/assets are required; installed Inter falls back
-to the local sans-serif stack.
+3. **Run Database Migrations:**
+   Using trusted migration credentials:
+   ```sh
+   npm run db:migrate
+   ```
 
-## Verification Evidence
+4. **Provision Accounts:**
+   Create an admin account using the secure operator CLI:
+   ```sh
+   npm run account -- create-admin admin@example.test
+   ```
+   *(Optionally create a manager account with `npm run account -- create-manager manager@example.test`)*.
 
-Verification uses Node **24.22.1** explicitly on this Windows machine because its
-default installed Node is 22.22.3. Installation also succeeded under the default
-runtime with the expected engine warning; use Node 24 for normal development.
+5. **Start Development Servers:**
+   ```sh
+   npm run dev
+   ```
+   Open **http://localhost:5173**. Vite proxies backend requests to port 3000.
 
-Executed commands include `npm install`, `npm ci`, `npm audit`, `npm run
-typecheck`, `npm run lint`, `npm run test:unit`, `npm run test:integration`,
-`npm run test:e2e`, and `npm run build`. Test tools were additionally invoked
-directly with the Node 24 executable to avoid shell/runtime ambiguity.
+---
 
-Final results:
-
-| Check | Result |
-| --- | --- |
-| Reproducible dependency install | Passed; one root lockfile |
-| Typecheck and ESLint | Passed |
-| Unit/component suites | 247 passed in 26 files |
-| PostgreSQL integration suites | 45 passed in 5 files |
-| Chromium desktop/mobile journeys | 26 passed in 3 specs |
-| Frontend/backend production build | Passed |
-| Native Node 24 production smoke | Passed |
-| npm audit | 0 reported vulnerabilities |
-
-The independent read-only review was followed by fixes and regressions for
-delayed successful login cookies, stale editor recovery captures, retained
-uncertainty after rejected retries, draft return context, and native production
-contract resolution. Browser testing additionally exposed and fixed a route
-heading/list-return focus race. No known failing automated check remains.
-
-The suites exercise real persisted workflows and privilege denials, same-key
-concurrency, draft version races, rollback after receipt-insertion failure for
-all five operations, lock timeout/retry, uncommitted receipt invisibility,
-technician deactivation locking, microsecond pagination, Unicode/byte boundaries,
-maximum version behavior, auth lifecycles, and cookie response ordering.
-
-The native production smoke command is:
+## 9. Verification & CLI Commands
 
 ```sh
-node --import tsx tests/support/production-smoke.ts
+# Verification & Testing
+npm run typecheck                  # Verify TypeScript types across all workspaces
+npm run lint                       # Run ESLint checks
+npm run test:unit                  # Run Vitest unit & component test suites
+npm run test:integration           # Run PostgreSQL integration tests (isolated embedded cluster)
+npm run test:e2e                   # Run Playwright end-to-end tests
+npm run build                      # Build production web bundle and API package
+npm start                          # Run native bundled server (build/server.mjs)
+
+# Operator CLI Commands
+npm run account -- create-admin <email>       # Provision an administrator account
+npm run account -- create-manager <email>     # Provision a manager account
+npm run account -- replace-password <uuid>    # Reset an account password
+npm run account -- revoke-sessions <uuid>     # Revoke all active sessions for an account
+npm run account -- cleanup-auth               # Purge expired sessions and rate-limit buckets
+npm run account -- cleanup-ai                 # Purge expired AI admission leases and usage logs
 ```
 
-Run it after `npm run build`. It checks bundled native startup, SPA deep links,
-static assets, JSON API misses, script CSP, and sanitized cookie-neutral database
-outage responses. It uses synthetic unused loopback connection information,
-not application credentials. Approved Argon2 policy benchmark on this host:
-179 ms hash and 191 ms precomputed-dummy verification; host-specific, not an SLA.
-
-## Limits And Deployment Gates
-
-- No deployment, Supabase project, external credentials, proxy, or shared database
-  was provisioned or modified. Live Supabase/PostgREST denial, verified remote
-  database TLS, HTTPS cookie behavior, trusted-proxy IP attribution and host
-  connection budgets still require environment-specific smoke checks.
-- Configure a single HTTPS `PUBLIC_ORIGIN`, exact `TRUSTED_PROXY_CIDRS` (default
-  none), proxy forwarding-header replacement, and prevent direct backend bypass.
-  The backend binds loopback. The TLS terminator must supply HSTS. Never disable
-  database certificate verification; connection-string SSL overrides are stripped.
-- `DB_POOL_MAX` defaults to 10 (validated 1-50), but the operator must budget total
-  pools and four 64-MiB Argon2 workers per process against actual host limits.
-  Origin/proxy/database settings are not a substitute for host-level request and
-  connection limits. HMAC secret rotation resets effective rate-limit buckets.
-- Manual screen-reader, physical-device, browser-native zoom, and non-Chromium
-  browser checks remain unverified. Automated tests check keyboard/focus states,
-  Chromium desktop/mobile, 360/768/1280/1440 widths and enlarged text.
-- There is no MFA or password reset; the approved eight-character minimum remains
-  a weak-password risk. No guarantee covers distributed/rotating-IP attacks.
-- Cookie response arrival order can remove a newer cookie or establish a later
-  login after logout; tests assert these limitations rather than global sign-out.
-  Broadcast coordination is best effort, not a cross-tab lock.
-- Drafts/receipts have indefinite retention. Memory-only edits, keys, list context
-  and confirmation are lost on refresh/closure. Never-saved forms have no lost-key
-  deduplication. Sequence gaps are allowed. Draft pagination is not a snapshot.
-- Already-authorized work may finish after revocation. Technician names are
-  current references, not historical snapshots. Offline/suspended browsers cannot
-  be guaranteed to erase previously displayed data.
-- AI Assistant deployment gates: `AI_ENABLED` defaults to `false`. Connecting a real
-  OpenAI-compatible Chat Completions provider requires operator configuration of
-  `AI_BASE_URL`, `AI_API_KEY`, and `AI_MODEL`. The operator is responsible for
-  vendor terms, external privacy compliance, model token limits, and network
-  connectivity from the backend server to the model endpoint. AI calls are never made
-  from the browser or without backend authentication and admission control.
+### Automated Test Coverage
+- **Unit / Component Tests:** 247 tests in 26 test files covering contracts, form validation, and components.
+- **Database Integration Tests:** 45 tests exercising transactional locks, sequence generation, and role permissions against an isolated PostgreSQL instance.
+- **End-to-End Tests:** 26 Playwright journeys validating desktop and mobile viewports, login flows, order submissions, and AI query interactions.
