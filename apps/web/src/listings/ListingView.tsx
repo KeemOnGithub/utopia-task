@@ -66,9 +66,11 @@ export function ListingView<T extends { id: string }>({ kind, fetchPage, columns
           </div>
         </div>
         <div className="actions">
-          <GuardedLink className="button primary" to="/orders/new">
-            Create service order
-          </GuardedLink>
+          {auth.user?.role === 'admin' && (
+            <GuardedLink className="button primary" to="/orders/new">
+              Create service order
+            </GuardedLink>
+          )}
           <button type="button" disabled={state.loading} onClick={model.newest}>
             Refresh
           </button>

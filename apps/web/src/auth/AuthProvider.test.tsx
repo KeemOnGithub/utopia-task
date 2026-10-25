@@ -80,4 +80,20 @@ describe('auth lifecycle bindings',()=>{
     expect(auth.phase).toBe('authenticated');expect(auth.accountId).toBe('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb');
     expect(events.some(event=>event.type==='destroy' && event.reason==='accountChanged')).toBe(true);expect(Channel.last.postMessage).toHaveBeenCalledWith('session-change');stop();
   });
+  it('admits manager session and destroys prior privileged state when role changes',async()=>{
+    const managerSession: SessionData = { user: { id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', email: 'm@example.test', role: 'manager' }, expiresAt: '2026-10-24T00:00:00.000Z' };
+    request.mockResolvedValueOnce(session());
+    render(<AuthProvider><Probe/></AuthProvider>);
+    await waitFor(()=>expect(auth.phase).toBe('authenticated'));
+    expect(auth.user?.role).toBe('admin');
+    const events:AuthLifecycleEvent[]=[];const stop=subscribeAuthLifecycle(event=>events.push(event));
+    request.mockResolvedValueOnce(managerSession);
+    await act(async()=>auth.refreshSession());
+    expect(auth.phase).toBe('authenticated');
+    expect(auth.user?.role).toBe('manager');
+    const destroyIndex=events.findIndex(event=>event.type==='destroy');
+    expect(destroyIndex).toBeGreaterThan(-1);
+    expect(events[destroyIndex]?.reason).toBe('roleChanged');
+    stop();
+  });
 });

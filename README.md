@@ -1,11 +1,13 @@
-# Sejuk Sejuk Service: Module 1
+# Sejuk Sejuk Service: Module 1 & Operations Query Window
 
-An admin operations application implementing the four integrated specifications in
+An operations application implementing the five integrated specifications in
 `specs/`: real authentication, persisted service-order lists, private manual
-drafts, transactional order creation/assignment, and read-only saved-order detail.
+drafts, transactional order creation/assignment, read-only saved-order detail,
+and the Operations Query Window (Spec 5).
 The assessment's mock-login suggestion is superseded by the approved real-auth
-contracts. There are no technician completion/payment, manager, WhatsApp, AI, or
-upload features.
+contracts. There are no technician completion/payment, WhatsApp, or
+upload features. Both `admin` and `manager` roles are admitted to the portal;
+`admin` retains exclusive rights to create orders and manage drafts.
 
 ## Requirements
 
@@ -70,11 +72,13 @@ npm run build
 npm start
 npm run db:migrate
 npm run account -- create-admin admin@example.test
+npm run account -- create-manager manager@example.test
 npm run account -- replace-password <account-uuid>
 npm run account -- deactivate <account-uuid>
 npm run account -- activate <account-uuid>
 npm run account -- revoke-sessions <account-uuid>
 npm run account -- cleanup-auth
+npm run account -- cleanup-ai
 ```
 
 `npm start` runs the **bundled** `build/server.mjs` from the repository root.
@@ -87,7 +91,9 @@ Argon2's native binary. Development/migration/operator commands use `tsx`.
 
 Run `cleanup-auth` daily through the host scheduler using trusted operator
 credentials; it removes expired sessions and limiter rows older than 24 hours.
-It is not an HTTP operation and runtime cannot delete limiter rows.
+Run `cleanup-ai` daily through the host scheduler to remove expired request leases
+and usage rows older than 30 days. Neither is an HTTP operation and runtime cannot
+delete limiter rows or AI usage logs.
 
 ## Implemented Workflows
 
@@ -143,6 +149,26 @@ It is not an HTTP operation and runtime cannot delete limiter rows.
 - Read-only retries, dismissible persistent feedback, refresh/departure expiry of
   confirmation, and originating-list versus newest-list return behavior.
 
+### 5. Operations Query Window (Spec 5)
+
+- Dual portal roles: both `admin` and `manager` accounts authenticate to the portal
+  and read service orders (`/orders`, `/orders/:id`) and the Operations Assistant
+  (`/operations-assistant`). Mutations (order creation and drafts) remain strictly
+  restricted to `admin` (enforced by backend `requireAdmin` and local route gates).
+- Natural language query interpretation via single bounded query plans (`findOrders`,
+  `countOrders`, `totalQuotedValue`, `rankTechnicians`, `lookupOrder`) or clear
+  clarification/unsupported responses.
+- Database-backed multi-tenant admission controls: single concurrent question per
+  account (429), deployment concurrency lease limit (503, default 4), account 5-minute
+  quota (429, 10 questions), and deployment daily MYT quota (429, default 500).
+- Privacy-preserving architecture: LLM prompt never receives customer names, phone
+  numbers, addresses, or internal UUIDs. Evidence returned to browser is retrieved
+  authoritatively from PostgreSQL and grounded with exact numbers and validated links.
+- Verified retrieval survives provider summary failures via deterministic narrative
+  fallback (`summarySource: 'deterministic'`).
+- In-memory tab conversation history with client-side cancellation, 20-exchange cap,
+  and instant destruction upon account or role change.
+
 ## Architecture And Decisions
 
 `apps/web` is React/Vite/React Router/Tailwind; `apps/api` is a same-origin
@@ -181,10 +207,9 @@ Final results:
 | --- | --- |
 | Reproducible dependency install | Passed; one root lockfile |
 | Typecheck and ESLint | Passed |
-| Unit/component suites | 220 passed in 23 files |
-| PostgreSQL integration suites | 37 passed in 4 files |
-| Chromium desktop/mobile journeys | 20 passed |
-| Repeated list-return focus regression | 8 additional runs passed |
+| Unit/component suites | 247 passed in 26 files |
+| PostgreSQL integration suites | 45 passed in 5 files |
+| Chromium desktop/mobile journeys | 26 passed in 3 specs |
 | Frontend/backend production build | Passed |
 | Native Node 24 production smoke | Passed |
 | npm audit | 0 reported vulnerabilities |
@@ -241,3 +266,9 @@ not application credentials. Approved Argon2 policy benchmark on this host:
 - Already-authorized work may finish after revocation. Technician names are
   current references, not historical snapshots. Offline/suspended browsers cannot
   be guaranteed to erase previously displayed data.
+- AI Assistant deployment gates: `AI_ENABLED` defaults to `false`. Connecting a real
+  OpenAI-compatible Chat Completions provider requires operator configuration of
+  `AI_BASE_URL`, `AI_API_KEY`, and `AI_MODEL`. The operator is responsible for
+  vendor terms, external privacy compliance, model token limits, and network
+  connectivity from the backend server to the model endpoint. AI calls are never made
+  from the browser or without backend authentication and admission control.

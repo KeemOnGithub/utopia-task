@@ -3,7 +3,7 @@ export type AuthPhase='checking'|'anonymous'|'authenticated'|'recovering'|'forbi
 export type AuthBinding={accountId:string|null;authGeneration:number};
 export type AuthLifecycleEvent=
   |{type:'suspend';reason:'initialCheck'|'visibility'|'sessionChange'|'unauthenticated'|'login';binding:AuthBinding}
-  |{type:'destroy';reason:'accountChanged'|'forbidden'|'logout'|'remoteLogout';binding:AuthBinding}
+  |{type:'destroy';reason:'accountChanged'|'roleChanged'|'forbidden'|'logout'|'remoteLogout';binding:AuthBinding}
   |{type:'resume';reason:'initialCheck'|'visibility'|'sessionChange'|'login';binding:{accountId:string;authGeneration:number}};
 const listeners=new Set<(event:AuthLifecycleEvent)=>void>();
 let binding:AuthBinding={accountId:null,authGeneration:0};

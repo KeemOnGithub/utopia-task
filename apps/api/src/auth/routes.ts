@@ -18,7 +18,7 @@ export function registerAuthRoutes(app:FastifyInstance):void {
     let account;
     try { account=(await app.db.query('SELECT id,email,password_hash,role,is_active FROM app_private.accounts WHERE email=$1',[email])).rows[0]; }
     catch { throw new AppError(503,'SERVICE_UNAVAILABLE','Sign in is unavailable. Try again.'); }
-    const eligible=account?.is_active && account.role==='admin';
+    const eligible=account?.is_active && (account.role==='admin' || account.role==='manager');
     const verified=await verifyPassword(eligible?account.password_hash:dummyHash,password);
     if(!eligible || !verified)throw invalid();
     const replacement=needsRehash(account.password_hash)?await hashPassword(password):null;
@@ -26,11 +26,11 @@ export function registerAuthRoutes(app:FastifyInstance):void {
     const presented=getSessionToken(request);
     const data=await transaction(app.db,async client=>{
       const locked=(await client.query('SELECT id,email,password_hash,role,is_active FROM app_private.accounts WHERE id=$1 FOR UPDATE',[account.id])).rows[0];
-      if(!locked?.is_active || locked.role!=='admin' || locked.password_hash!==account.password_hash)throw invalid();
+      if(!locked?.is_active || (locked.role!=='admin' && locked.role!=='manager') || locked.password_hash!==account.password_hash)throw invalid();
       if(replacement)await client.query('UPDATE app_private.accounts SET password_hash=$1 WHERE id=$2 AND password_hash=$3',[replacement,account.id,account.password_hash]);
       if(presented)await client.query('DELETE FROM app_private.sessions WHERE token_hash=$1',[hashToken(presented)]);
       const {rows}=await client.query("WITH t AS (SELECT clock_timestamp() AS at) INSERT INTO app_private.sessions(token_hash,account_id,created_at,expires_at) SELECT $1,$2,at,at+interval '8 hours' FROM t RETURNING expires_at",[hashToken(token),account.id]);
-      return {user:{id:account.id as string,email:account.email as string,role:'admin' as const},expiresAt:new Date(rows[0].expires_at).toISOString()};
+      return {user:{id:account.id as string,email:account.email as string,role:locked.role as 'admin'|'manager'},expiresAt:new Date(rows[0].expires_at).toISOString()};
     });
     reply.header('Set-Cookie',cookie(app,token,new Date(data.expiresAt)));
     return {data};

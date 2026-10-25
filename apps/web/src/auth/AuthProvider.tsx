@@ -29,15 +29,20 @@ export function AuthProvider({children}:{children:ReactNode}) {
   }
   async function verify(reason:'initialCheck'|'visibility'|'sessionChange'|'login',generation?:number):Promise<void> {
     if(logoutIntent.current)return;
-    const previous=current.current.user?.id??null;
+    const previousUser=current.current.user;
+    const previous=previousUser?.id??null;
+    const previousRole=previousUser?.role??null;
     const ownGeneration=generation??invalidate('suspend',reason);
     const controller=new AbortController();checking.current=controller;
     try {
       const data=await apiRequest<SessionData>('/auth/session',{signal:controller.signal});
       if(current.current.generation!==ownGeneration || logoutIntent.current)return;
       if(authBusy.current && reason!=='login')return;
-      if(!data?.user?.id || data.user.role!=='admin')throw new Error('Invalid session response');
-      if(previous && previous!==data.user.id){recoveryStore.clear();publishAuth({type:'destroy',reason:'accountChanged',binding:{accountId:previous,authGeneration:ownGeneration}});}
+      if(!data?.user?.id || (data.user.role!=='admin' && data.user.role!=='manager'))throw new Error('Invalid session response');
+      if(previous && (previous!==data.user.id || previousRole!==data.user.role)){
+        recoveryStore.clear();
+        publishAuth({type:'destroy',reason:previous!==data.user.id?'accountChanged':'roleChanged',binding:{accountId:previous,authGeneration:ownGeneration}});
+      }
       update('authenticated',data.user,ownGeneration);
       publishAuth({type:'resume',reason,binding:{accountId:data.user.id,authGeneration:ownGeneration}});
     }catch(error){

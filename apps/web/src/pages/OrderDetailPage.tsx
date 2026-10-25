@@ -213,11 +213,13 @@ export function OrderDetailPage() {
               </dl>
             </section>
 
-            <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)' }}>
-              <GuardedLink className="button primary" to="/orders/new">
-                Create another order
-              </GuardedLink>
-            </div>
+            {auth.user?.role === 'admin' && (
+              <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)' }}>
+                <GuardedLink className="button primary" to="/orders/new">
+                  Create another order
+                </GuardedLink>
+              </div>
+            )}
           </>
         )}
       </div>

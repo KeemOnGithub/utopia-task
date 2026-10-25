@@ -6,7 +6,7 @@ const mock=vi.hoisted(()=>({value:{} as any,open:vi.fn(),dismiss:vi.fn(),refresh
 vi.mock('./useOrderDetail.js',()=>({useOrderDetail:()=>mock.value}));
 vi.mock('./handoff.js',()=>({dismissCreation:(...args:unknown[])=>mock.dismiss(...args)}));
 vi.mock('react-router-dom',()=>({useParams:()=>({orderId:'30000000-0000-4000-8000-000000000001'}),useLocation:()=>({state:'opaque-key'})}));
-vi.mock('../auth/index.js',()=>({useAuth:()=>({binding:{accountId:'account',authGeneration:1},isCurrent:()=>true})}));
+vi.mock('../auth/index.js',()=>({useAuth:()=>({user:{id:'account',username:'admin',role:'admin'},binding:{accountId:'account',authGeneration:1},isCurrent:()=>true})}));
 vi.mock('../navigation.js',()=>({GuardedLink:({to,children}:{to:string;children:unknown})=>createElement('a',{href:to},children as string)}));
 vi.mock('../listings/navigation.js',()=>({openOrders:(value:unknown)=>mock.open(value),resolveListReturn:()=>null}));
 import { OrderDetailPage } from '../pages/OrderDetailPage.js';

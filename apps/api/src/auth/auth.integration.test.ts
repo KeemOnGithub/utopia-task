@@ -38,6 +38,8 @@ describe('real PostgreSQL auth boundary',()=>{
     const a=generateToken(),b=generateToken();
     await db.owner.query("INSERT INTO app_private.sessions(token_hash,account_id,expires_at) VALUES($1,$3,now()+interval '8 hours'),($2,$3,now()+interval '8 hours')",[hashToken(a),hashToken(b),accountId]);
     await db.owner.query("UPDATE app_private.accounts SET role='manager' WHERE id=$1",[accountId]);
+    const mgr=await app.inject({url:'/api/auth/session',headers:{cookie:`dev_session=${a}`}});expect(mgr.statusCode).toBe(200);expect(mgr.json().data.user.role).toBe('manager');
+    await db.owner.query("UPDATE app_private.accounts SET role='technician' WHERE id=$1",[accountId]);
     const denied=await app.inject({url:'/api/auth/session',headers:{cookie:`dev_session=${a}`}});expect(denied.statusCode).toBe(403);expect(denied.headers['set-cookie']).toBeUndefined();
     await db.owner.query('UPDATE app_private.accounts SET is_active=false WHERE id=$1',[accountId]);
     expect((await app.inject({url:'/api/auth/session',headers:{cookie:`dev_session=${a}`}})).statusCode).toBe(401);
@@ -80,7 +82,11 @@ describe('real PostgreSQL auth boundary',()=>{
       await seed();await runAccountCommand(['deactivate',id],prompt);expect((await db.owner.query('SELECT is_active FROM app_private.accounts WHERE id=$1',[id])).rows[0].is_active).toBe(false);
       await runAccountCommand(['activate',id],prompt);expect((await db.owner.query('SELECT 1 FROM app_private.sessions WHERE account_id=$1',[id])).rowCount).toBe(0);
       await seed();await runAccountCommand(['revoke-sessions',id],prompt);expect((await db.owner.query('SELECT 1 FROM app_private.sessions WHERE account_id=$1',[id])).rowCount).toBe(0);
+      await runAccountCommand(['create-manager',' MGR@Example.Test '],prompt);
+      const mgrId=(await db.owner.query("SELECT id,role FROM app_private.accounts WHERE email='mgr@example.test'")).rows[0];
+      expect(mgrId.role).toBe('manager');
       await runAccountCommand(['cleanup-auth'],prompt);
+      await runAccountCommand(['cleanup-ai'],prompt);
       expect(JSON.stringify(audit.mock.calls)).not.toContain('operator synthetic password');expect(JSON.stringify(audit.mock.calls)).not.toContain('cli@example.test');
       await expect(runAccountCommand(['create-admin','test@example.test','argv-password'],prompt)).rejects.toThrow('hidden prompts');
     } finally {audit.mockRestore();if(previous===undefined)delete process.env.PROVISION_DATABASE_URL;else process.env.PROVISION_DATABASE_URL=previous;}

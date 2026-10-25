@@ -10,7 +10,7 @@ describe('persisted order detail authorization and projection',()=>{
   beforeAll(async()=>{
     db=await isolatedDatabase(25746);
     app=buildApp({databaseUrl:db.runtimeUrl,publicOrigin:'http://localhost:5173',production:false,port:3000,poolMax:10,trustedProxy:[],hmacSecret:'detail-test-secret-32-bytes-long-0000'},db.runtime);
-    for(const [index,role] of ['admin','admin','manager'].entries()){
+    for(const [index,role] of ['admin','admin','technician'].entries()){
       const id=(await db.owner.query('INSERT INTO app_private.accounts(email,password_hash,role) VALUES($1,$2,$3) RETURNING id',[`detail${index}@example.test`,'synthetic-not-used-for-login',role])).rows[0].id;
       actor??=id;const token=generateToken();cookies.push(`dev_session=${token}`);
       await db.owner.query("INSERT INTO app_private.sessions(token_hash,account_id,expires_at) VALUES($1,$2,now()+interval '8 hours')",[hashToken(token),id]);

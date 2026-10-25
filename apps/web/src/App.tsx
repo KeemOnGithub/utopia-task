@@ -8,6 +8,17 @@ import { OrdersPage } from './pages/OrdersPage';
 import { DraftsPage } from './pages/DraftsPage';
 import { CreateOrderPage } from './pages/CreateOrderPage';
 import { OrderDetailPage } from './pages/OrderDetailPage';
+import { OperationsAssistantPage } from './pages/OperationsAssistantPage';
+
+function AdminOnlyNotice() {
+  return (
+    <section className="surface page-enter" style={{ maxWidth: 600, margin: '40px auto' }}>
+      <h1 tabIndex={-1}>Access restricted</h1>
+      <p>Only administrators can create orders or manage drafts.</p>
+      <GuardedLink to="/orders" className="button primary">Service orders</GuardedLink>
+    </section>
+  );
+}
 
 const SEED_TECHNICIANS = [
   { id: '10000000-0000-4000-8000-000000000001', name: 'Ali' },
@@ -29,10 +40,10 @@ function Application() {
     return typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   });
 
-  const desired = useRef(safeReturnPath(location.pathname + location.search));
+  const desired = useRef(safeReturnPath(location.pathname + location.search, auth.user?.role));
   const focusedRoute = useRef<string | null>(null);
   const retainedLocation = useRef(location);
-  const knownRoute = /^\/(?:orders(?:\/[^/]+)?|drafts(?:\/[^/]+\/edit)?|login|access-denied)?$/.test(location.pathname);
+  const knownRoute = /^\/(?:orders(?:\/[^/]+)?|drafts(?:\/[^/]+\/edit)?|operations-assistant|login|access-denied)?$/.test(location.pathname);
   const visible = auth.phase === 'authenticated';
 
   useEffect(() => {
@@ -127,9 +138,14 @@ function Application() {
                   <GuardedLink to="/orders" aria-current={location.pathname.startsWith('/orders') ? 'page' : undefined}>
                     Service orders
                   </GuardedLink>
-                  <GuardedLink to="/drafts" aria-current={location.pathname.startsWith('/drafts') ? 'page' : undefined}>
-                    My drafts
+                  <GuardedLink to="/operations-assistant" aria-current={location.pathname === '/operations-assistant' ? 'page' : undefined}>
+                    Operations assistant
                   </GuardedLink>
+                  {auth.user?.role === 'admin' && (
+                    <GuardedLink to="/drafts" aria-current={location.pathname.startsWith('/drafts') ? 'page' : undefined}>
+                      My drafts
+                    </GuardedLink>
+                  )}
                 </nav>
 
                 {/* Live Field Technician Roster */}
@@ -156,13 +172,15 @@ function Application() {
               <div style={{ paddingTop: 16, borderTop: '1px solid var(--sidebar-border)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
-                    <div className="tech-avatar" style={{ width: 28, height: 28, fontSize: 12 }}>AD</div>
+                    <div className="tech-avatar" style={{ width: 28, height: 28, fontSize: 12 }}>
+                      {auth.user?.role === 'manager' ? 'MG' : 'AD'}
+                    </div>
                     <div style={{ overflow: 'hidden' }}>
                       <span style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--sidebar-text)', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
                         {auth.user?.email}
                       </span>
                       <span style={{ display: 'block', fontSize: 10, color: '#4ade80' }}>
-                        ● Admin Session
+                        ● {auth.user?.role === 'manager' ? 'Manager Session' : 'Admin Session'}
                       </span>
                     </div>
                   </div>
@@ -173,10 +191,10 @@ function Application() {
             <div className="workspace">
               <header className="utility-bar">
                 <span>
-                  <span>Admin portal</span>
+                  <span>Operations portal</span>
                   <span style={{ color: 'var(--text-subtle)', margin: '0 4px' }}>/</span>
                   <span style={{ fontSize: 12, color: 'var(--primary)', fontWeight: 600 }}>
-                    {location.pathname.startsWith('/drafts') ? 'Drafts Management' : 'Order Dispatch'}
+                    {location.pathname.startsWith('/drafts') ? 'Drafts Management' : location.pathname === '/operations-assistant' ? 'Operations Assistant' : 'Order Dispatch'}
                   </span>
                 </span>
                 
@@ -201,9 +219,10 @@ function Application() {
               <main className="page-content">
                 <Routes location={visible ? location : retainedLocation.current}>
                   <Route path="/orders" element={<OrdersPage />} />
-                  <Route path="/drafts" element={<DraftsPage />} />
-                  <Route path="/orders/new" element={<CreateOrderPage />} />
-                  <Route path="/drafts/:draftId/edit" element={<CreateOrderPage />} />
+                  <Route path="/operations-assistant" element={<OperationsAssistantPage />} />
+                  <Route path="/drafts" element={auth.user?.role === 'admin' ? <DraftsPage /> : <AdminOnlyNotice />} />
+                  <Route path="/orders/new" element={auth.user?.role === 'admin' ? <CreateOrderPage /> : <AdminOnlyNotice />} />
+                  <Route path="/drafts/:draftId/edit" element={auth.user?.role === 'admin' ? <CreateOrderPage /> : <AdminOnlyNotice />} />
                   <Route path="/orders/:orderId" element={<OrderDetailPage />} />
                   <Route
                     path="*"

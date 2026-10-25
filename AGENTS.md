@@ -10,10 +10,11 @@ Prioritize complete, well-explained workflows over feature count.
 
 ## Project Scope
 
-Implement Module 1: Admin Portal / Order Submission.
+Implement Module 1: Admin Portal / Order Submission, extended with Spec 5 Operations Query Window.
 
 The primary workflow is for an admin to create a service order,
-assign a technician, and save the order to Supabase.
+assign a technician, and save the order to Supabase. Managers and admins
+can query operational history via the Operations Assistant.
 
 Required fields:
 - Order number (auto-generated)
@@ -27,10 +28,11 @@ Required fields:
 - Admin notes
 
 Seed technicians: Ali, John, Bala, Yusoff (stable IDs, not login accounts).
-Admin notes are optional; final assignment is mandatory. Specs 1-4 in `specs/`
-are the authoritative integrated implementation-ready design, not working code.
-Approved scope includes real admin authentication, read-only order list/detail,
-and private manually saved versioned drafts with uncertain-outcome reconciliation.
+Admin notes are optional; final assignment is mandatory. Specs 1-5 in `specs/`
+are the authoritative integrated implementation-ready design.
+Approved scope includes real admin and manager authentication, read-only order list/detail,
+private manually saved versioned drafts with uncertain-outcome reconciliation,
+and a read-only operations query window with privacy-safe provider DTO separation.
 
 Prioritize a responsive, accessible form, reliable persistence,
 validation, and clear submission feedback. Admin users primarily
@@ -75,7 +77,8 @@ and `npm run build`. `npx playwright install chromium` installs browser tooling.
 `npm start` runs the native bundled `build/server.mjs`; production also serves
 `apps/web/dist`. Do not run the pre-existing `apps/api/dist` artifacts.
 `npm run db:migrate` uses only MIGRATION_DATABASE_URL and an ordered checksum
-ledger. `npm run account -- <command>` uses only PROVISION_DATABASE_URL with
+ledger. `npm run account -- <command>` (including `create-admin`, `create-manager`,
+and `cleanup-ai`) uses only PROVISION_DATABASE_URL with
 hidden password prompts. See README.md for roles, setup and deployment gates.
 
 Integration/browser tests always create disposable local UTF-8 PostgreSQL

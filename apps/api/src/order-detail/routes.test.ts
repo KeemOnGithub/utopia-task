@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import type { Pool } from 'pg';
 import { afterEach,describe,expect,it,vi } from 'vitest';
 const mocks=vi.hoisted(()=>({authorize:vi.fn(),load:vi.fn()}));
-vi.mock('../auth/index.js',()=>({requireAdmin:(...args:unknown[])=>mocks.authorize(...args)}));
+vi.mock('../auth/index.js',()=>({requireAdmin:(...args:unknown[])=>mocks.authorize(...args),requireOrderReader:(...args:unknown[])=>mocks.authorize(...args)}));
 vi.mock('./queries.js',()=>({loadOrderDetail:(...args:unknown[])=>mocks.load(...args)}));
 import { registerOrderDetailRoutes } from './routes.js';
 import { AppError,sendApiError } from '../errors.js';

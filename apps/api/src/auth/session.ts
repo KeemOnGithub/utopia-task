@@ -22,7 +22,7 @@ export async function resolveSession(db: Queryable, token: string | null): Promi
   } catch { throw new AppError(503, 'SERVICE_UNAVAILABLE', 'Session verification is unavailable. Try again.'); }
   const row = rows[0];
   if (!row || !row.is_active) throw unauthenticated();
-  if (row.role !== 'admin') throw new AppError(403, 'FORBIDDEN', 'You do not have access to this portal.');
-  return { user: { id: row.id, email: row.email, role: 'admin' }, expiresAt: new Date(row.expires_at).toISOString() };
+  if (row.role !== 'admin' && row.role !== 'manager') throw new AppError(403, 'FORBIDDEN', 'You do not have access to this portal.');
+  return { user: { id: row.id, email: row.email, role: row.role as 'admin' | 'manager' }, expiresAt: new Date(row.expires_at).toISOString() };
 }
 export const unauthenticated = () => new AppError(401, 'UNAUTHENTICATED', 'Your session has expired. Sign in again.');

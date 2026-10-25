@@ -244,18 +244,33 @@ export function LoginPage() {
               </div>
             </div>
 
-            <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                Demo Admin: <code style={{ color: 'var(--text-bright)' }}>admin@example.test</code>
+            <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                  Demo Admin: <code style={{ color: 'var(--text-bright)' }}>admin@example.test</code>
+                </div>
+                <button
+                  type="button"
+                  className="button secondary"
+                  style={{ fontSize: 11, padding: '4px 10px', height: 'auto' }}
+                  onClick={() => handleFillDemo('admin@example.test', 'admin123456')}
+                >
+                  Auto-fill Admin
+                </button>
               </div>
-              <button
-                type="button"
-                className="button secondary"
-                style={{ fontSize: 11, padding: '4px 10px', height: 'auto' }}
-                onClick={() => handleFillDemo('admin@example.test', 'admin123456')}
-              >
-                Auto-fill credentials
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                  Demo Manager: <code style={{ color: 'var(--text-bright)' }}>manager@example.test</code>
+                </div>
+                <button
+                  type="button"
+                  className="button secondary"
+                  style={{ fontSize: 11, padding: '4px 10px', height: 'auto' }}
+                  onClick={() => handleFillDemo('manager@example.test', 'admin123456')}
+                >
+                  Auto-fill Manager
+                </button>
+              </div>
             </div>
           </div>
         </section>
